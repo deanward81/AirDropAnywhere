@@ -9,4 +9,22 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="libnative.so" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Makaretu.Dns" Version="2.0.1" />
+    <PackageReference Include="plist-cil" Version="2.1.0" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="5.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Certificates\AppleRootCA.crt" />
+  </ItemGroup>
+  
+  <Target Name="BuildNativeDependencies" BeforeTargets="Build" Inputs="libnative.m" Outputs="libnative.so">
+    <Exec Command="clang -framework Foundation -shared -v -o libnative.so libnative.m" Condition="$([MSBuild]::IsOsPlatform('OSX'))" />
+  </Target>
 </Project>
