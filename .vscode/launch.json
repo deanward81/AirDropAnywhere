@@ -1,0 +1,48 @@
+{
+    // Use IntelliSense to find out which attributes exist for C# debugging
+    // Use hover for the description of the existing attributes
+    // For further information visit https://github.com/OmniSharp/omnisharp-vscode/blob/master/debugger-launchjson.mdn
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": ".NET Core Launch (console)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            // If you have changed target frameworks, make sure to update the program path.
+            "program": "${workspaceFolder}/bin/Debug/net5.0/${workspaceFolderBasename}.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            // For more information about the 'console' field, see https://aka.ms/VSCode-CS-LaunchJson-Console
+            "console": "internalConsole",
+            "stopAtEntry": false
+        },
+        {
+            "name": ".NET Core Attach",
+            "type": "coreclr",
+            "request": "attach",
+            "processId": "${command:pickProcess}"
+        },
+        {
+            "name": ".NET Core Launch (remote)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "RaspberryPiDeploy",
+            "program": "dotnet",
+            "args": [
+                "/home/pi/src/${workspaceFolderBasename}/AirDropAnywhere.Cli.dll"
+            ],
+            "cwd": "/home/pi/src/${workspaceFolderBasename}",
+            "stopAtEntry": false,
+            "console": "internalConsole",
+            "pipeTransport": {
+                "pipeCwd": "${workspaceFolder}",
+                "pipeProgram": "ssh",
+                "pipeArgs": [
+                    "pi@dward-pi"
+                ],
+                "debuggerPath": "/home/pi/vsdbg/vsdbg"
+            }
+        }
+    ]
+}

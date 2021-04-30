@@ -1,0 +1,65 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "build",
+                "${workspaceFolder}",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary"
+            ],
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "publish",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "publish",
+                "${workspaceFolder}",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary"
+            ],
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "watch",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "watch",
+                "run",
+                "${workspaceFolder}",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary"
+            ],
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "RaspberryPiPublish",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "publish",
+                "-r:linux-arm",
+                "-o:bin/linux-arm/publish",
+                "--no-self-contained"
+            ],
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "RaspberryPiDeploy",
+            "type": "shell",
+            "dependsOn": "RaspberryPiPublish",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "command": "rsync -rvuz --rsh=ssh bin/linux-arm/publish/ pi@dward-pi:~/src/${workspaceFolderBasename}/",
+            "problemMatcher": []
+        }
+    ]
+}
