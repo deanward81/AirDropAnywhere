@@ -1,4 +1,4 @@
-# AirDropAnywhere
+# AirDrop Anywhere
 
 > **NOTE** This project is still a work in progress - some of the details below are the intended end state of the project, not the current state! More information can be found at my blog at https://bakedbean.org.uk/tags/airdrop/
 
