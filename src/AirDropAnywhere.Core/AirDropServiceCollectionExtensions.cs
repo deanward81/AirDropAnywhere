@@ -1,5 +1,8 @@
 using System;
+using System.Runtime.InteropServices;
 using AirDropAnywhere.Core;
+using AirDropAnywhere.Core.HttpTransport;
+using Microsoft.AspNetCore.Connections;
 using Microsoft.Extensions.Hosting;
 
 // ReSharper disable once CheckNamespace
@@ -24,10 +27,16 @@ namespace Microsoft.Extensions.DependencyInjection
             
             Utils.AssertPlatform();
             Utils.AssertNetworkInterfaces();
-            
+
+            services.AddScoped<AirDropRouteHandler>();
             services.AddSingleton<AirDropService>();
             services.AddSingleton<IHostedService>(s => s.GetService<AirDropService>()!);
             services.AddOptions<AirDropOptions>().ValidateDataAnnotations();
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                services.AddSingleton<IConnectionListenerFactory, AwdlSocketTransportFactory>();
+            }
+
             if (setupAction != null)
             {
                 services.Configure(setupAction);

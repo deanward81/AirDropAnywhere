@@ -1,7 +1,6 @@
 using System;
 using AirDropAnywhere.Core;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -24,6 +23,20 @@ namespace Microsoft.AspNetCore.Hosting
             Utils.AssertNetworkInterfaces();
             
             return builder
+                .ConfigureKestrel(
+                    options =>
+                    {
+                        var airDropOptions = options.ApplicationServices.GetRequiredService<IOptions<AirDropOptions>>();
+                        options.ConfigureEndpointDefaults(
+                            options =>
+                            {
+                                // TODO: use a self-generated certificate
+                                options.UseHttps();
+                            });
+                        
+                        options.ListenAnyIP(airDropOptions.Value.ListenPort);
+                    }
+                )
                 .ConfigureServices(
                     services =>
                     {
@@ -37,7 +50,7 @@ namespace Microsoft.AspNetCore.Hosting
                         app.UseEndpoints(
                             endpoints =>
                             {
-                                endpoints.MapGet("", ctx => ctx.Response.WriteAsync("Hello World"));
+                                endpoints.MapAirDrop();
                             }
                         );
                     }

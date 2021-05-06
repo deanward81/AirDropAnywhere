@@ -1,8 +1,13 @@
 using System;
 using System.Linq;
+using System.Net.Http;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Threading.Tasks;
+using AirDropAnywhere.Core.Serialization;
+using Microsoft.AspNetCore.Http;
 
 namespace AirDropAnywhere.Core
 {
@@ -80,6 +85,33 @@ namespace AirDropAnywhere.Core
                 (int)SocketOptionLevel.Socket, SO_RECV_ANYIF, _trueSocketValue.Span
             );
         }
+        
+        /// <summary>
+        /// Writes an object of the specified type from the HTTP request using Apple's plist binary format.
+        /// </summary>
+        public static ValueTask<T> ReadFromPropertyListAsync<T>(this HttpRequest request) where T : class, new()
+        {
+            if (!request.ContentLength.HasValue || request.ContentLength > PropertyListSerializer.MaxPropertyListLength)
+            {
+                throw new HttpRequestException("Content length is too long.");
+            }
+
+            return PropertyListSerializer.DeserializeAsync<T>(request.Body);
+        }
+        
+        /// <summary>
+        /// Writes the specified object to the HTTP response in Apple's plist binary format.
+        /// </summary>
+        public static ValueTask WriteAsPropertyListAsync<T>(this HttpResponse response, T obj) where T : class
+        {
+            if (obj == null)
+            {
+                throw new ArgumentNullException(nameof(obj));
+            }
+
+            response.ContentType = "application/octet-stream";
+            return PropertyListSerializer.SerializeAsync(obj, response.Body);
+        }
 
         /// <summary>
         /// Generates a 12 character random string. 
@@ -101,5 +133,60 @@ namespace AirDropAnywhere.Core
 
             return new string(chars);
         }
+        
+        private static bool TryGetOctalDigit(byte c, out int value)
+        {
+            value = c - '0';
+            return value <= 7;
+        }
+                
+        /// <summary>
+        /// Parses an octal string to a <see cref="uint"/>.
+        /// </summary>
+        /// <remarks>
+        /// Ripped off a little from .NET Core code
+        /// https://source.dot.net/#System.Private.CoreLib/ParseNumbers.cs,574
+        /// </remarks>
+        public static bool TryParseOctalToUInt32(ReadOnlySpan<byte> s, out uint value)
+        {
+            if (s.Length == 0)
+            {
+                value = default;
+                return false;
+            }
+            
+            uint result = 0;
+            const uint maxValue = uint.MaxValue / 8;
+                 
+            var i = 0;
+            // Read all of the digits and convert to a number
+            while (i < s.Length && TryGetOctalDigit(s[i], out var digit))
+            {
+                if (result > maxValue)
+                {
+                    value = default;
+                    return false;
+                } 
+                        
+                uint temp = result * (uint) 8 + (uint) digit;
+                if (temp > maxValue)
+                {
+                    value = default;
+                    return false;
+                }
+                result = temp;
+                i++;
+            }
+
+            if (i != s.Length)
+            {
+                value = default;
+                return false;
+            }
+            
+            value = result;
+            return true;
+        }
+
     }
 }
