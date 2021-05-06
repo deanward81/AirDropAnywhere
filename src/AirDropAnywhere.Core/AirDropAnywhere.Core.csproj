@@ -21,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Remove="Certificates\AppleRootCA.crt" />
+    <EmbeddedResource Include="Resources\AppleRootCA.crt" />
   </ItemGroup>
   
   <Target Name="BuildNativeDependencies" BeforeTargets="Build" Inputs="libnative.m" Outputs="libnative.so">
