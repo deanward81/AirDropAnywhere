@@ -4,7 +4,6 @@ using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using AirDropAnywhere.Core.MulticastDns;
@@ -44,7 +43,7 @@ namespace AirDropAnywhere.Core
             if (string.IsNullOrWhiteSpace(serviceId))
             {
                 // generate a random identifier for this instance
-                serviceId = GenerateRandomServiceId();
+                serviceId = Utils.GetRandomString();
             }
 
             // on MacOS, make sure AWDL is spun up by the OS
@@ -95,38 +94,20 @@ namespace AirDropAnywhere.Core
                 _cancellationTokenSource.Cancel();
                 _cancellationTokenSource = null;
             }
-            
+
             if (_mDnsServer != null)
             {
                 _logger.LogInformation("Stopping mDNS listener...");
                 await _mDnsServer.StopAsync();
                 _mDnsServer = null;
             }
-            
+
             // on MacOS, make sure AWDL is stopped by the OS
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             {
                 _logger.LogInformation("Stopping AWDL...");
                 Interop.StopAWDLBrowsing();
             }
-        }
-        
-        private static string GenerateRandomServiceId()
-        {
-            const string charset = "abcdefghijklmnopqrstuvwxyz0123456789";
-            Span<byte> bytes = stackalloc byte[12];
-            Span<char> chars = stackalloc char[12];
-            using (var crypto = new RNGCryptoServiceProvider())
-            {
-                crypto.GetNonZeroBytes(bytes);
-            }
-
-            for (var i = 0; i < bytes.Length; i++)
-            {
-                chars[i] = charset[bytes[i] % (charset.Length)];
-            }
-
-            return new string(chars);
         }
     }
 }

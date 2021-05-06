@@ -80,5 +80,26 @@ namespace AirDropAnywhere.Core
                 (int)SocketOptionLevel.Socket, SO_RECV_ANYIF, _trueSocketValue.Span
             );
         }
+
+        /// <summary>
+        /// Generates a 12 character random string. 
+        /// </summary>
+        public static string GetRandomString()
+        {
+            const string charset = "abcdefghijklmnopqrstuvwxyz0123456789";
+            Span<byte> bytes = stackalloc byte[12];
+            Span<char> chars = stackalloc char[12];
+            using (var crypto = new RNGCryptoServiceProvider())
+            {
+                crypto.GetNonZeroBytes(bytes);
+            }
+
+            for (var i = 0; i < bytes.Length; i++)
+            {
+                chars[i] = charset[bytes[i] % (charset.Length)];
+            }
+
+            return new string(chars);
+        }
     }
 }
