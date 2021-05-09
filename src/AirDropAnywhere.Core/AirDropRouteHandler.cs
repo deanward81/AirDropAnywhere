@@ -7,7 +7,6 @@ using AirDropAnywhere.Core.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Net.Http.Headers;
 
 namespace AirDropAnywhere.Core
 {
@@ -20,28 +19,13 @@ namespace AirDropAnywhere.Core
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        public static async Task ExecuteAsync(HttpContext ctx, Func<HttpContext, AirDropRouteHandler, Task> executor)
+        public static Task ExecuteAsync(HttpContext ctx, Func<HttpContext, AirDropRouteHandler, Task> executor)
         {
-            var routeHandler = ctx.RequestServices.GetRequiredService<AirDropRouteHandler>();
-            // ctx.Request.EnableBuffering();
-            // // Leave the body open so the next middleware can read it.
-            // using (var reader = new StreamReader(
-            //     ctx.Request.Body,
-            //     encoding: Encoding.UTF8,
-            //     detectEncodingFromByteOrderMarks: false,
-            //     bufferSize: 4096,
-            //     leaveOpen: true))
-            // {
-            //     var body = await reader.ReadToEndAsync();
-            //     // Do some processing with body…
-            //     routeHandler._logger.LogInformation(body);
-            //     // Reset the request body stream position so the next middleware can read it
-            //     ctx.Request.Body.Position = 0;
-            // }
-            
-            await executor(ctx, routeHandler);
+            return executor(
+                ctx, ctx.RequestServices.GetRequiredService<AirDropRouteHandler>()
+            );
         }
-        
+
         public async Task DiscoverAsync(HttpContext ctx)
         {
             // TODO: handle contacts

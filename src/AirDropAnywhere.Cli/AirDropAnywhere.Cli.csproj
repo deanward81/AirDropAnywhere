@@ -8,6 +8,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AirDropAnywhere.Core\AirDropAnywhere.Core.csproj" />
+    <PackageReference Include="Spectre.Console" Version="0.39.0" />
+    <PackageReference Include="Spectre.Cli.Extensions.DependencyInjection" Version="0.4.0" />
   </ItemGroup>
 
   <ItemGroup>

@@ -3,6 +3,7 @@
   "profiles": {
     "AirDropAnywhere.Cli": {
       "commandName": "Project",
+      "commandLineArgs": "server",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Local"
       }

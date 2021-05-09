@@ -1,38 +1,40 @@
 ﻿using System.Threading.Tasks;
-using Microsoft.AspNetCore;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.Configuration;
+using AirDropAnywhere.Cli.Commands;
+using AirDropAnywhere.Cli.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Spectre.Cli.Extensions.DependencyInjection;
+using Spectre.Console;
+using Spectre.Console.Cli;
 
 namespace AirDropAnywhere.Cli
 {
-    class Program
+    internal static class Program
     {
-        static Task Main(string[] args)
+        public const string ApplicationName = "🌐 AirDrop Anywhere";
+        public static Task<int> Main(string[] args)
         {
-            var cliConfig = new ConfigurationBuilder()
-                .AddCommandLine(args)
-                .Build();
-            
-            var webHost = WebHost.CreateDefaultBuilder(args)
-                .ConfigureLogging(
-                    (ctx, builder) =>
+            var services = new ServiceCollection()
+                .AddSingleton(AnsiConsole.Console)
+                .AddLogging(
+                    builder =>
                     {
                         builder.ClearProviders();
-                        builder.AddConfiguration(ctx.Configuration.GetSection("Logging"));
-                        builder.AddConsole();
+                        builder.AddProvider(new SpectreInlineLoggerProvider(AnsiConsole.Console));
                     }
-                )
-                .ConfigureAirDrop(
-                    options =>
-                    {
-                        cliConfig.Bind(options);
-                        options.ListenPort = 34553;
-                    }
-                )
-                .Build();
+                );
 
-            return webHost.RunAsync();
+            var typeRegistrar = new DependencyInjectionRegistrar(services);
+            var app = new CommandApp(typeRegistrar);
+            app.Configure(
+                c =>
+                {
+                    c.AddCommand<ServerCommand>("server");
+                    c.AddCommand<ClientCommand>("client");
+                    c.SetApplicationName("🌐 AirDrop Anywhere");
+                }
+            );
+            return app.RunAsync(args);
         }
     }
 }
