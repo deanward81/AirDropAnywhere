@@ -103,7 +103,7 @@ namespace AirDropAnywhere.Core
             }
 
             // on MacOS, make sure AWDL is stopped by the OS
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             {
                 _logger.LogInformation("Stopping AWDL...");
                 Interop.StopAWDLBrowsing();
