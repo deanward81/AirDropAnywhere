@@ -92,7 +92,7 @@ namespace AirDropAnywhere.Core.MulticastDns
             {
                 var interfaceProperties = networkInterface.GetIPProperties();
                 // grab the addresses for each interface
-                // and configure a listeners and clients for each one to handle
+                // and configure the relevant listeners and clients for each one to handle
                 // sending and receiving of multicast traffic
                 var addresses = GetNetworkInterfaceLocalAddresses(networkInterface);
                 foreach (var address in addresses)
@@ -108,6 +108,13 @@ namespace AirDropAnywhere.Core.MulticastDns
                     }
 
                     var interfaceIndex = 0;
+                    // multicast clients are keyed by both the address family
+                    // and the index of the interface they are associated with.
+                    // When sending a multicast message we enumerate and send to
+                    // _all_ clients. When responding to a multicast message we
+                    // respond using the client associated with the interface index
+                    // that the message was received on, otherwise the sender
+                    // never sees the response.
                     if (address.AddressFamily == AddressFamily.InterNetwork)
                     {
                         interfaceIndex = interfaceProperties.GetIPv4Properties().Index;
@@ -125,63 +132,12 @@ namespace AirDropAnywhere.Core.MulticastDns
             _unicastClients = unicastClients.ToImmutable();
             _multicastClients = multicastClients.ToImmutable();
             _listenerTasks = new List<Task>(_listeners.Count);
+            // now we have our listening sockets, hook up background threads
+            // that listen for messages from each one
             foreach (var listener in _listeners.Values)
             {
                 _listenerTasks.Add(
                     Task.Run(
-                        async () =>
-                        {
-                            await foreach (var receiveResult in listener.ReceiveAsync(_cancellationToken))
-                            {
-                                var request = receiveResult.Message;
-                                if (!request.IsQuery)
-                                {
-                                    continue;
-                                }
-                                
-                                // normalize unicast responses
-                                // see https://github.com/richardschneider/net-mdns/blob/master/src/ServiceDiscovery.cs#L382-L392
-                                var useUnicast = false;
-                                foreach (var q in request.Questions)
-                                {
-                                    if (((ushort)q.Class & 0x8000) != 0)
-                                    {
-                                        useUnicast = true;
-                                        q.Class = (DnsClass)((ushort)q.Class & 0x7fff);
-                                    }
-                                }
-                                
-                                var response = await _nameServer.ResolveAsync(request, _cancellationToken);
-                                if (response.Status != MessageStatus.NoError)
-                                {
-                                    // couldn't resolve the request, ignore it
-                                    continue;
-                                }
-                                
-                                // All MDNS answers are authoritative and have a transaction
-                                // ID of zero.
-                                response.AA = true;
-                                response.Id = 0;
-
-                                // All MDNS answers must not contain any questions.
-                                response.Questions.Clear();
-
-                                var endpoint = receiveResult.Endpoint;
-                                var packetInformation = receiveResult.PacketInformation;
-                                if (useUnicast && _unicastClients!.TryGetValue(endpoint.AddressFamily, out var client))
-                                {
-                                    // a unicast response is needed for this query
-                                    // send a response directly to the endpoint that sent it
-                                    await client.SendAsync(response, endpoint);
-                                }
-                                else if (!useUnicast && _multicastClients!.TryGetValue((endpoint.AddressFamily, packetInformation.Interface), out client))
-                                {
-                                    // send a multicast response using 
-                                    // the specific interface that the query was received on
-                                    await client.SendAsync(response);
-                                }
-                            }
-                        }
                     )
                 );
             }
@@ -224,7 +180,63 @@ namespace AirDropAnywhere.Core.MulticastDns
             _multicastClients = null;
             _unicastClients = null;
         }
-        
+
+        private async Task ListenAsync(SocketListener listener)
+        {
+            await foreach (var receiveResult in listener.ReceiveAsync(_cancellationToken))
+            {
+                var request = receiveResult.Message;
+                if (!request.IsQuery)
+                {
+                    continue;
+                }
+
+                // normalize unicast responses
+                // mDNS uses an additional bit to signify that a unicast response
+                // is required for a message. This checks for that bit and adjusts
+                // the query so that it represents the correct data.
+                // see https://github.com/richardschneider/net-mdns/blob/master/src/ServiceDiscovery.cs#L382-L392
+                var useUnicast = false;
+                foreach (var q in request.Questions)
+                {
+                    if (((ushort) q.Class & 0x8000) != 0)
+                    {
+                        useUnicast = true;
+                        q.Class = (DnsClass) ((ushort) q.Class & 0x7fff);
+                    }
+                }
+
+                var response = await _nameServer.ResolveAsync(request, _cancellationToken);
+                if (response.Status != MessageStatus.NoError)
+                {
+                    // couldn't resolve the request, ignore it
+                    continue;
+                }
+
+                // All MDNS answers are authoritative and have a transaction
+                // ID of zero.
+                response.AA = true;
+                response.Id = 0;
+
+                // All MDNS answers must not contain any questions.
+                response.Questions.Clear();
+
+                var endpoint = receiveResult.Endpoint;
+                var packetInformation = receiveResult.PacketInformation;
+                if (useUnicast && _unicastClients!.TryGetValue(endpoint.AddressFamily, out var client))
+                {
+                    // a unicast response is needed for this query
+                    // send a response directly to the endpoint that sent it
+                    await client.SendAsync(response, endpoint);
+                }
+                else if (!useUnicast && _multicastClients!.TryGetValue((endpoint.AddressFamily, packetInformation.Interface), out client))
+                {
+                    // send a multicast response using 
+                    // the specific interface that the query was received on
+                    await client.SendAsync(response);
+                }
+            }
+        }
         private static IEnumerable<IPAddress> GetNetworkInterfaceLocalAddresses(NetworkInterface networkInterface)
         {
             return networkInterface
@@ -237,7 +249,7 @@ namespace AirDropAnywhere.Core.MulticastDns
         
         private static SocketListener CreateListener(IPAddress ipAddress)
         {
-            var localEndpoint = default(IPEndPoint);
+            IPEndPoint localEndpoint;
             if (ipAddress.AddressFamily == AddressFamily.InterNetwork)
             {
                 localEndpoint = new IPEndPoint(IPAddress.Any, MulticastPort);
@@ -271,7 +283,7 @@ namespace AirDropAnywhere.Core.MulticastDns
 
         private static SocketClient CreateUnicastClient(IPAddress ipAddress)
         {
-            var localEndpoint = default(IPEndPoint);
+            IPEndPoint localEndpoint;
             if (ipAddress.AddressFamily == AddressFamily.InterNetwork)
             {
                 localEndpoint = new IPEndPoint(IPAddress.Any, 0);
@@ -294,7 +306,7 @@ namespace AirDropAnywhere.Core.MulticastDns
         
         private static SocketClient CreateMulticastClient(IPAddress ipAddress)
         {
-            var remoteEndpoint = default(IPEndPoint);
+            IPEndPoint remoteEndpoint;
             if (ipAddress.AddressFamily == AddressFamily.InterNetwork)
             {
                 remoteEndpoint = MulticastEndpointIPv4;
