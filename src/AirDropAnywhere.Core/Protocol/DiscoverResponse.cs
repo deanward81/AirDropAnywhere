@@ -1,11 +1,11 @@
 using System.Text.Json;
 
-namespace AirDropAnywhere.Core.Models
+namespace AirDropAnywhere.Core.Protocol
 {
     /// <summary>
     /// Body of a response from the /Discover endpoint in the AirDrop HTTP API.
     /// </summary>
-    public class DiscoverResponse
+    internal class DiscoverResponse
     {
         public DiscoverResponse(string computerName, string modelName, MediaCapabilities mediaCapabilities)
         {

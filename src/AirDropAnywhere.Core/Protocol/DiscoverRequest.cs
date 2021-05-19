@@ -1,16 +1,17 @@
 // ReSharper disable AutoPropertyCanBeMadeGetOnly.Local
+
 using System;
 using System.Security.Cryptography.Pkcs;
 using System.Security.Cryptography.X509Certificates;
 using AirDropAnywhere.Core.Resources;
 using AirDropAnywhere.Core.Serialization;
 
-namespace AirDropAnywhere.Core.Models
+namespace AirDropAnywhere.Core.Protocol
 {
     /// <summary>
     /// Body of a request to the /Discover endpoint in the AirDrop HTTP API.
     /// </summary>
-    public class DiscoverRequest
+    internal class DiscoverRequest
     {
         /// <summary>
         /// Gets a binary blob representing a PKCS7 signed plist containing

@@ -1,12 +1,9 @@
-using System;
-using System.Text.Json;
-
-namespace AirDropAnywhere.Core.Models
+namespace AirDropAnywhere.Core.Protocol
 {
     /// <summary>
     /// Body of a response from the /Ask endpoint in the AirDrop HTTP API.
     /// </summary>
-    public class AskResponse
+    internal class AskResponse
     {
         public AskResponse(string computerName, string modelName)
         {

@@ -1,6 +1,6 @@
-namespace AirDropAnywhere.Core.Models
+namespace AirDropAnywhere.Core.Protocol
 {
-    public class MediaCapabilities
+    internal class MediaCapabilities
     {
         public static readonly MediaCapabilities Default = new(1);
         

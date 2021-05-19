@@ -3,7 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Threading.Tasks;
 using AirDropAnywhere.Core.Compression;
-using AirDropAnywhere.Core.Models;
+using AirDropAnywhere.Core.Protocol;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;

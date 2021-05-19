@@ -1,9 +1,9 @@
 // ReSharper disable UnusedAutoPropertyAccessor.Local
 // ReSharper disable ClassNeverInstantiated.Global
 #pragma warning disable 8618
-namespace AirDropAnywhere.Core.Models
+namespace AirDropAnywhere.Core.Protocol
 {
-    public class FileMetadata
+    internal class FileMetadata
     {
         public string FileName { get; private set; }
         public string FileType { get; private set; }

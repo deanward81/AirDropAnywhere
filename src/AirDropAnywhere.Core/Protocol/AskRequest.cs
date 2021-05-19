@@ -5,12 +5,12 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace AirDropAnywhere.Core.Models
+namespace AirDropAnywhere.Core.Protocol
 {
     /// <summary>
     /// Body of a request to the /Ask endpoint in the AirDrop HTTP API.
     /// </summary>
-    public class AskRequest
+    internal class AskRequest
     {
         /// <summary>
         /// Gets the sender computer's name. Displayed when asking for receiving a file not from a contact
