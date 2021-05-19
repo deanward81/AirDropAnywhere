@@ -16,7 +16,7 @@ namespace AirDropAnywhere.Core.HttpTransport
     /// Wraps a <see cref="SocketConnectionFactory" /> and ensures we
     /// listen on AWDL interfaces on MacOS. 
     /// </summary>
-    public class AwdlSocketTransportFactory : IConnectionListenerFactory
+    internal class AwdlSocketTransportFactory : IConnectionListenerFactory
     {
         private readonly IConnectionListenerFactory _connectionListenerFactory;
         private readonly FieldInfo _listenSocketField;
