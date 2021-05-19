@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
 
+// ReSharper disable once CheckNamespace
 namespace Enclave.UdpPerf
 {
     /// <summary>
@@ -20,7 +21,7 @@ namespace Enclave.UdpPerf
     /// </remarks>
     internal sealed class UdpAwaitableSocketAsyncEventArgs : SocketAsyncEventArgs, IValueTaskSource<int>
     {
-        private static readonly Action<object?> _completedSentinel = new(state => throw new InvalidOperationException("Task misuse"));
+        private static readonly Action<object?> _completedSentinel = state => throw new InvalidOperationException("Task misuse");
 
         // This _token is a basic attempt to protect against misuse of the value tasks we return from this source.
         // Not perfect, intended to be 'best effort'.
