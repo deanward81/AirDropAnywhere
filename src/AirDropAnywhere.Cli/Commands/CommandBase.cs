@@ -5,7 +5,7 @@ using Spectre.Console.Cli;
 
 namespace AirDropAnywhere.Cli.Commands
 {
-    public abstract class CommandBase : AsyncCommand
+    public abstract class CommandBase<TSettings> : AsyncCommand<TSettings> where TSettings : CommandSettings
     {
         protected IAnsiConsole Console { get; }
         protected ILogger Logger { get; }

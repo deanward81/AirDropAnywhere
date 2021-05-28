@@ -61,17 +61,58 @@ namespace AirDropAnywhere.Core.MulticastDns
             var msg = service.ToMessage();
             
             catalog.Add(
-                new PTRRecord { Name = MulticastDnsService.Discovery, DomainName = service.QualifiedServiceName },
+                new PTRRecord
+                {
+                    DomainName = service.QualifiedServiceName,
+                    Name = MulticastDnsService.Discovery, 
+                    TTL = MulticastDnsService.DefaultTTL,
+                },
                 authoritative: true
             );
             catalog.Add(
-                new PTRRecord { Name = service.QualifiedServiceName, DomainName = service.QualifiedInstanceName },
+                new PTRRecord
+                {
+                    DomainName = service.QualifiedInstanceName,
+                    Name = service.QualifiedServiceName,
+                    TTL = MulticastDnsService.DefaultTTL,
+                },
                 authoritative: true
             );
             
             foreach (var resourceRecord in msg.Answers)
             {
                 catalog.Add(resourceRecord, authoritative: true);
+            }
+
+            if (_multicastClients != null)
+            {
+                foreach (var client in _multicastClients.Values)
+                {
+                    await client.SendAsync(msg);
+                }
+            }
+        }
+        
+        public async ValueTask UnregisterAsync(MulticastDnsService service)
+        {
+            var catalog = _nameServer.Catalog;
+            
+            // remove all services advertised under this name
+            catalog.TryRemove(service.QualifiedServiceName, out _);
+            catalog.TryRemove(service.QualifiedInstanceName, out _);
+            catalog.TryRemove(service.HostName, out _);
+            
+            // and pre-emptively announce ourselves with a 0 TTL
+            var msg = service.ToMessage();
+
+            foreach (var answer in msg.Answers)
+            {
+                answer.TTL = TimeSpan.Zero;
+            }
+
+            foreach (var additionalRecord in msg.AdditionalRecords)
+            {
+                additionalRecord.TTL = TimeSpan.Zero;
             }
 
             if (_multicastClients != null)
@@ -138,6 +179,7 @@ namespace AirDropAnywhere.Core.MulticastDns
             {
                 _listenerTasks.Add(
                     Task.Run(
+                        () => ListenAsync(listener), _cancellationToken
                     )
                 );
             }
@@ -237,6 +279,7 @@ namespace AirDropAnywhere.Core.MulticastDns
                 }
             }
         }
+
         private static IEnumerable<IPAddress> GetNetworkInterfaceLocalAddresses(NetworkInterface networkInterface)
         {
             return networkInterface
@@ -383,6 +426,14 @@ namespace AirDropAnywhere.Core.MulticastDns
             
             public async IAsyncEnumerable<ReceiveResult> ReceiveAsync([EnumeratorCancellation] CancellationToken cancellationToken)
             {
+                var socket = Socket;
+                
+                // ReceiveFromAsync does not support cancellation directly
+                // so register to shutdown the socket when cancellation occurs
+                cancellationToken.Register(
+                    () => socket.Shutdown(SocketShutdown.Both)
+                );
+                
                 // allocate a small buffer for our packets
                 var buffer = GC.AllocateArray<byte>(Message.MaxLength, true);
                 var bufferMemory = buffer.AsMemory();
@@ -390,7 +441,19 @@ namespace AirDropAnywhere.Core.MulticastDns
                 {
                     // continually listen for messages from the socket
                     // decode them and queue them into the receiving channel
-                    var result = await Socket.ReceiveFromAsync(Endpoint, bufferMemory);
+                    UdpSocketExtensions.SocketReceiveResult result;
+                    try
+                    {
+                        result = await socket.ReceiveFromAsync(Endpoint, bufferMemory);
+                    }
+                    catch (SocketException ex) when (ex.SocketErrorCode == SocketError.Shutdown) 
+                    {
+                        // socket was shutdown
+                        // probably by the cancellation token being cancelled
+                        // try to continue the loop
+                        continue;
+                    }
+
                     // ideally this would use a pooled set of message objects
                     // rather than allocating a new one each time but the underlying
                     // API doesn't readily support such things

@@ -16,10 +16,7 @@ namespace AirDropAnywhere.Cli.Logging
             _console = console;
         }
 
-        public IDisposable BeginScope<TState>(TState state)
-        {
-            return null;
-        }
+        public IDisposable BeginScope<TState>(TState state) => null!;
 
         public bool IsEnabled(LogLevel logLevel) => true;
 

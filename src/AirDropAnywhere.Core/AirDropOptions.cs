@@ -6,6 +6,5 @@ namespace AirDropAnywhere.Core
     {
         [Required]
         public ushort ListenPort { get; set; }
-        public string? ServiceId { get; set; }
     }
 }

@@ -10,7 +10,7 @@ namespace AirDropAnywhere.Core.Protocol
     /// <summary>
     /// Body of a request to the /Ask endpoint in the AirDrop HTTP API.
     /// </summary>
-    internal class AskRequest
+    public class AskRequest
     {
         /// <summary>
         /// Gets the sender computer's name. Displayed when asking for receiving a file not from a contact
