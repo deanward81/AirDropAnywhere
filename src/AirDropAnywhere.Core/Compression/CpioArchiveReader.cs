@@ -15,7 +15,6 @@ namespace AirDropAnywhere.Core.Compression
         private CpioArchiveReader(PipeReader pipeReader)
         {
             _pipeReader = pipeReader ?? throw new ArgumentNullException(nameof(pipeReader));
-            _workingBytes = ArrayPool<byte>.Shared.Rent(4096);
         }
 
         private byte[]? _workingBytes;
