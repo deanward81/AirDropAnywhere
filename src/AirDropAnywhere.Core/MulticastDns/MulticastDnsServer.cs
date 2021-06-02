@@ -429,9 +429,9 @@ namespace AirDropAnywhere.Core.MulticastDns
                 var socket = Socket;
                 
                 // ReceiveFromAsync does not support cancellation directly
-                // so register to shutdown the socket when cancellation occurs
+                // so register to close the socket when cancellation occurs
                 cancellationToken.Register(
-                    () => socket.Shutdown(SocketShutdown.Both)
+                    () => socket.Close()
                 );
                 
                 // allocate a small buffer for our packets
@@ -446,11 +446,11 @@ namespace AirDropAnywhere.Core.MulticastDns
                     {
                         result = await socket.ReceiveFromAsync(Endpoint, bufferMemory);
                     }
-                    catch (SocketException ex) when (ex.SocketErrorCode == SocketError.Shutdown) 
+                    catch (SocketException ex) when (ex.SocketErrorCode == SocketError.OperationAborted)
                     {
-                        // socket was shutdown
+                        // socket was closed
                         // probably by the cancellation token being cancelled
-                        // try to continue the loop
+                        // try to continue the loop so we exit gracefully
                         continue;
                     }
 
