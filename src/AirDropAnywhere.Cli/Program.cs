@@ -31,9 +31,10 @@ namespace AirDropAnywhere.Cli
                 {
                     c.AddCommand<ServerCommand>("server");
                     c.AddCommand<ClientCommand>("client");
-                    c.SetApplicationName("🌐 AirDrop Anywhere");
                 }
             );
+            
+            AnsiConsole.WriteLine(ApplicationName);
             return app.RunAsync(args);
         }
     }

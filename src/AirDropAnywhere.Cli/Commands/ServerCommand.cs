@@ -24,8 +24,6 @@ namespace AirDropAnywhere.Cli.Commands
 
         public override async Task<int> ExecuteAsync(CommandContext context, Settings settings)
         {
-            Console.MarkupLine(Program.ApplicationName);
-            
             var webHost = default(IWebHost);
             using var cancellationTokenSource = new CancellationTokenSource();
             

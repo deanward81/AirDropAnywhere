@@ -22,8 +22,6 @@ namespace AirDropAnywhere.Cli.Commands
 
         public override async Task<int> ExecuteAsync(CommandContext context, Settings settings)
         {
-            Console.MarkupLine(Program.ApplicationName);
-
             var uri = new UriBuilder(
                 Uri.UriSchemeHttps, settings.Server, settings.Port, "/airdrop"
             ).Uri;
