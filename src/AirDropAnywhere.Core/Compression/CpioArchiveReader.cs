@@ -240,7 +240,10 @@ namespace AirDropAnywhere.Core.Compression
                     
                     sequenceReader.Advance(state.Metadata.FileNameSize);
                     state = state.OnFileNameRead(filePath);
-                    extractedFiles.Add(filePath);
+                    if (state.Metadata.Type == EntryType.File)
+                    {
+                        extractedFiles.Add(filePath);
+                    }
 
                     if (state.Metadata.FileSize == 0)
                     {

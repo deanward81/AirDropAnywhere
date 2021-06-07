@@ -144,9 +144,22 @@ namespace AirDropAnywhere.Cli.Commands
         }
         private ValueTask<bool> OnCanAcceptFilesAsync(CanAcceptFilesRequestMessage request)
         {
+            var stringBuilder = new StringBuilder()
+                .Append("Incoming files from [bold]")
+                .Append(request.SenderComputerName)
+                .AppendLine("[/]:");
+            
+            foreach (var file in request.Files)
+            {
+                stringBuilder.Append(" ‣ ").AppendLine(file.Name);
+            }
+            
+            Console.MarkupLine(stringBuilder.ToString());
+            
             return new(
                 Console.Prompt(
                     new ConfirmationPrompt($"Incoming files from [bold]{request.SenderComputerName}[/]. Accept?")
+                    new ConfirmationPrompt("Accept?")
                 )
             );
         }
