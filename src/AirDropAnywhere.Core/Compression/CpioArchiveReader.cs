@@ -1,13 +1,23 @@
 using System;
 using System.Buffers;
+using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.IO.Pipelines;
+using System.Resources;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace AirDropAnywhere.Core.Compression
 {
+    /// <summary>
+    /// Implements the code necessary to extract a CPIO archive in OIDC format.
+    /// </summary>
+    /// <remarks>
+    /// See https://manpages.ubuntu.com/manpages/bionic/man5/cpio.5.html for further details
+    /// on the structure of an OIDC formatted archive.
+    /// </remarks>
     internal class CpioArchiveReader : IAsyncDisposable
     {
         private readonly PipeReader _pipeReader;
@@ -15,7 +25,6 @@ namespace AirDropAnywhere.Core.Compression
         private CpioArchiveReader(PipeReader pipeReader)
         {
             _pipeReader = pipeReader ?? throw new ArgumentNullException(nameof(pipeReader));
-            _workingBytes = ArrayPool<byte>.Shared.Rent(4096);
         }
 
         private byte[]? _workingBytes;
@@ -33,6 +42,14 @@ namespace AirDropAnywhere.Core.Compression
             (byte) 'T', (byte) 'R', (byte) 'A', (byte) 'I', (byte) 'L', 
             (byte) 'E', (byte) 'R', (byte) '!', (byte) '!', (byte) '!'
         };
+
+        /// <summary>
+        /// Prefix used for files in the current directory.
+        /// </summary>
+        private static readonly ReadOnlyMemory<byte> _currentDirectoryPrefix = new[]
+        {
+            (byte) '.', (byte) '/'
+        };
         
         /// <summary>
         /// "Filename" used to indicate the current directory.
@@ -41,7 +58,7 @@ namespace AirDropAnywhere.Core.Compression
         {
             (byte) '.'
         };
-        
+
         /// <summary>
         /// "Filename" used to indicate the parent directory.
         /// </summary>
@@ -57,8 +74,17 @@ namespace AirDropAnywhere.Core.Compression
         {
             (byte)'0', (byte)'7', (byte)'0', (byte)'7', (byte)'0', (byte)'7'
         };
-        
-        public async ValueTask ExtractAsync(string outputPath, CancellationToken cancellationToken = default)
+
+        /// <summary>
+        /// Extracts a CPIO archive to the specified output path.
+        /// </summary>
+        /// <param name="outputPath">
+        /// Path to extract files to.
+        /// </param>
+        /// <param name="cancellationToken">
+        /// <see cref="CancellationToken"/> used to cancel the operation.
+        /// </param>
+        public async ValueTask<IEnumerable<string>> ExtractAsync(string outputPath, CancellationToken cancellationToken = default)
         {
             if (outputPath == null)
             {
@@ -70,6 +96,7 @@ namespace AirDropAnywhere.Core.Compression
                 throw new ArgumentException("Output path must be fully qualified.", nameof(outputPath));
             }
 
+            var extractedFiles = ImmutableList.CreateBuilder<string>();
             var state = new CpioReaderState();
             while (true)
             {
@@ -81,7 +108,8 @@ namespace AirDropAnywhere.Core.Compression
                     ExtractArchiveEntries(
                         ref sequence,
                         ref state,
-                        outputPath, 
+                        outputPath,
+                        extractedFiles,
                         out consumed
                     );
                 }
@@ -105,12 +133,15 @@ namespace AirDropAnywhere.Core.Compression
                     
                 _pipeReader.AdvanceTo(consumed, sequence.End);
             }
+
+            return extractedFiles.ToImmutable();
         }
 
         private void ExtractArchiveEntries(
             ref ReadOnlySequence<byte> sequence,
             ref CpioReaderState state,
-            string outputPath, 
+            string outputPath,
+            ImmutableList<string>.Builder extractedFiles,
             out SequencePosition consumed
         )
         {
@@ -172,6 +203,12 @@ namespace AirDropAnywhere.Core.Compression
                         fileNameSpan = workingSpan[..fileNameSize];
                     }
 
+                    // trim off any ./ prefixes, they confuse things downstream
+                    if (fileNameSpan.StartsWith(_currentDirectoryPrefix.Span))
+                    {
+                        fileNameSpan = fileNameSpan.TrimStart(_currentDirectoryPrefix.Span);
+                    }
+
                     if (fileNameSpan.SequenceEqual(_currentDirectoryValue.Span) || fileNameSpan.SequenceEqual(_parentDirectoryValue.Span))
                     {
                         // we've found a current or parent directory entry
@@ -181,10 +218,10 @@ namespace AirDropAnywhere.Core.Compression
                         state = state.Reset();
                         break;
                     }
-                    
+
                     if (fileNameSpan.SequenceEqual(_trailerValue.Span))
                     {
-                        // we're found the TRAILER!! entry
+                        // we're found the TRAILER!!! entry
                         // we've reached the end of the file, exit early
                         sequenceReader.Advance(state.Metadata.FileNameSize);
                         sequenceReader.Advance(state.Metadata.FileSize);
@@ -203,6 +240,16 @@ namespace AirDropAnywhere.Core.Compression
                     
                     sequenceReader.Advance(state.Metadata.FileNameSize);
                     state = state.OnFileNameRead(filePath);
+                    if (state.Metadata.Type == EntryType.File)
+                    {
+                        extractedFiles.Add(filePath);
+                    }
+
+                    if (state.Metadata.FileSize == 0)
+                    {
+                        // no bytes to read, skip the entry 
+                        state = state.Reset();
+                    }
                 }
                 else if (state.Operation == CpioReadOperation.FileData)
                 {
@@ -236,26 +283,36 @@ namespace AirDropAnywhere.Core.Compression
             return _pipeReader.CompleteAsync();
         }
 
+        private enum EntryType
+        {
+            Directory = 1,
+            File = 2,
+            Other = 3,
+        }
+        
         /// <summary>
         /// CPIO ODC ASCII format header
         /// </summary>
         private readonly struct CpioEntryMetadata
         {
             public const int Length = 76;
-            private CpioEntryMetadata(int fileNameSize, int fileSize)
+            private CpioEntryMetadata(int fileNameSize, int fileSize, EntryType type)
             {
                 FileNameSize = fileNameSize;
                 FileSize = fileSize;
+                Type = type;
             }
             
             public int FileNameSize { get; }
             public int FileSize { get; }
+            public EntryType Type { get; }
 
             public enum ParseError
             {
                 None,
                 InvalidBufferSize,
                 InvalidMagic,
+                InvalidMode,
                 InvalidFileNameSize,
                 InvalidFileSize,
             }
@@ -278,7 +335,28 @@ namespace AirDropAnywhere.Core.Compression
                 }
 
                 // we don't really care about much else other than the
-                // file name & size, and the timestamp - parse out the octal strings
+                // mode, file name & size - parse out the octal strings and convert
+                // to their underlying uint values
+                var modeSpan = buffer.Slice(17, 6);
+                var type = EntryType.Other;
+                if (!Utils.TryParseOctalToUInt32(modeSpan, out var mode))
+                {
+                    error = ParseError.InvalidMode;
+                    metadata = default;
+                    return false;
+                }
+
+                const uint DirectoryMask = 2048;
+                const uint FileMask = 4096;
+                if ((mode & DirectoryMask) != 0)
+                {
+                    type = EntryType.Directory;
+                }
+                else if ((mode & FileMask) != 0)
+                {
+                    type = EntryType.File;
+                }
+                
                 var nameSizeSpan = buffer.Slice(59, 6);
                 if (!Utils.TryParseOctalToUInt32(nameSizeSpan, out var nameSize))
                 {
@@ -296,7 +374,7 @@ namespace AirDropAnywhere.Core.Compression
                 }
 
                 error = ParseError.None;
-                metadata = new CpioEntryMetadata((int)nameSize, (int)fileSize);
+                metadata = new CpioEntryMetadata((int)nameSize, (int)fileSize, type);
                 return true;
             }
         }
@@ -336,10 +414,26 @@ namespace AirDropAnywhere.Core.Compression
                 CpioReadOperation.FileName, metadata, null
             );
 
-            public CpioReaderState OnFileNameRead(string filePath) => new(
-                CpioReadOperation.FileData, Metadata, File.Create(filePath)
-            );
-            
+            public CpioReaderState OnFileNameRead(string filePath)
+            {
+                var metadata = Metadata;
+                if (metadata.Type == EntryType.File)
+                {
+                    // make sure any parent directory is created before we extract
+                    Directory.CreateDirectory(
+                        Path.GetDirectoryName(filePath)!
+                    );
+                    return new(
+                        CpioReadOperation.FileData, metadata, File.Create(filePath)
+                    );
+                }
+
+                // other types are not supported
+                return new(
+                    CpioReadOperation.End, default, null
+                );
+            }
+
             public CpioReaderState OnFileDataRead(ReadOnlyMemory<byte> buffer)
             {
                 _outputFile!.Write(buffer.Span);

@@ -63,9 +63,9 @@ namespace Microsoft.AspNetCore.Builder
                 );
             }
             
-            endpoints.MapPost("Discover", ctx => AirDropRouteHandler.ExecuteAsync(ctx, (c, r) => r.DiscoverAsync(c)));
-            endpoints.MapPost("Ask", ctx => AirDropRouteHandler.ExecuteAsync(ctx, (c, r) => r.AskAsync(c)));
-            endpoints.MapPost("Upload", ctx => AirDropRouteHandler.ExecuteAsync(ctx, (c, r) => r.UploadAsync(c)));
+            endpoints.MapPost("Discover", ctx => AirDropRouteHandler.ExecuteAsync(ctx, r => r.DiscoverAsync()));
+            endpoints.MapPost("Ask", ctx => AirDropRouteHandler.ExecuteAsync(ctx, r => r.AskAsync()));
+            endpoints.MapPost("Upload", ctx => AirDropRouteHandler.ExecuteAsync(ctx, r => r.UploadAsync()));
             return endpoints;
         }
     }

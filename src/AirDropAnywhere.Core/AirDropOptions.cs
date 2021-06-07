@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.Extensions.FileProviders;
 
 namespace AirDropAnywhere.Core
 {
@@ -6,6 +7,8 @@ namespace AirDropAnywhere.Core
     {
         [Required]
         public ushort ListenPort { get; set; }
-        public string? ServiceId { get; set; }
+        
+        [Required]
+        public string UploadPath { get; set; } = null!;
     }
 }

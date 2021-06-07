@@ -27,7 +27,7 @@ namespace Microsoft.Extensions.DependencyInjection
             
             Utils.AssertPlatform();
             Utils.AssertNetworkInterfaces();
-
+            
             services.AddScoped<AirDropRouteHandler>();
             services.AddSingleton<AirDropService>();
             services.AddSingleton<IHostedService>(s => s.GetService<AirDropService>()!);

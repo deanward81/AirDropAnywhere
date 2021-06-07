@@ -9,8 +9,9 @@ namespace AirDropAnywhere.Core.MulticastDns
 {
     public class MulticastDnsService
     {
-        public static readonly DomainName Root = new DomainName("local");
-        public static readonly DomainName Discovery = new DomainName("_services._dns-sd._udp.local");
+        public static readonly DomainName Root = new("local");
+        public static readonly DomainName Discovery = new("_services._dns-sd._udp.local");
+        public static readonly TimeSpan DefaultTTL = TimeSpan.FromMinutes(5);
         
         private MulticastDnsService(
             DomainName serviceName, 
@@ -63,26 +64,29 @@ namespace AirDropAnywhere.Core.MulticastDns
                         {
                             Name = QualifiedInstanceName,
                             Target = hostName,
+                            TTL = DefaultTTL,
                             Port = (ushort) port
                         });
                 }
-                
+
                 foreach (var endpoint in EndPoints)
                 {
-                    message.Answers.Add(
-                        AddressRecord.Create(hostName, endpoint.Address)
-                    );
+                    var addressRecord = AddressRecord.Create(hostName, endpoint.Address);
+                    addressRecord.TTL = DefaultTTL;
+                    message.Answers.Add(addressRecord);
                 }
 
                 message.Answers.Add(
                     new TXTRecord
                     {
                         Name = QualifiedInstanceName,
-                        Strings = Properties.Select(kv => $"{kv.Key}={kv.Value}").ToList()
+                        Strings = Properties.Select(kv => $"{kv.Key}={kv.Value}").ToList(),
+                        TTL = DefaultTTL
                     }
                 );
                 return message;
             }
+            
 
             return _message ??= Create();
         }
