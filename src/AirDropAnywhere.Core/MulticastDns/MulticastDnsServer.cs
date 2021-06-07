@@ -138,6 +138,7 @@ namespace AirDropAnywhere.Core.MulticastDns
             {
                 _listenerTasks.Add(
                     Task.Run(
+                        () => ListenAsync(listener), _cancellationToken
                     )
                 );
             }
