@@ -1,4 +1,5 @@
-﻿using System.Threading.Tasks;
+﻿using System;
+using System.Threading.Tasks;
 using AirDropAnywhere.Cli.Commands;
 using AirDropAnywhere.Cli.Logging;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,6 +17,7 @@ namespace AirDropAnywhere.Cli
         {
             var services = new ServiceCollection()
                 .AddSingleton(AnsiConsole.Console)
+                .AddHttpClient()
                 .AddLogging(
                     builder =>
                     {

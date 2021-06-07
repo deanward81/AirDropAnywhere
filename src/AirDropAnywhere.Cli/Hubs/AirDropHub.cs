@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -8,9 +9,11 @@ using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
 using AirDropAnywhere.Core;
 using AirDropAnywhere.Core.Protocol;
+using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.ObjectPool;
+using Microsoft.Extensions.Options;
 
 namespace AirDropAnywhere.Cli.Hubs
 {
@@ -18,16 +21,18 @@ namespace AirDropAnywhere.Cli.Hubs
     {
         private readonly AirDropService _service;
         private readonly ILogger<AirDropHub> _logger;
+        private readonly IOptions<AirDropOptions> _options;
 
         private static readonly ObjectPool<CallbackValueTaskSource> _callbackPool =
             new DefaultObjectPool<CallbackValueTaskSource>(
                 new CallbackObjectPoolPolicy(), 5
             );
 
-        public AirDropHub(AirDropService service, ILogger<AirDropHub> logger)
+        public AirDropHub(AirDropService service, ILogger<AirDropHub> logger, IOptions<AirDropOptions> options)
         {
             _service = service ?? throw new ArgumentNullException(nameof(service));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _options = options ?? throw new ArgumentNullException(nameof(options));
         }
 
         /// <summary>
@@ -48,7 +53,16 @@ namespace AirDropAnywhere.Cli.Hubs
         {
             var serverChannel = Channel.CreateUnbounded<MessageWithCallback>();
             var callbacks = new Dictionary<string, CallbackValueTaskSource>();
-            var peer = new AirDropHubPeer(serverChannel.Writer, _logger);
+            var httpContext = Context.GetHttpContext();
+            var baseUri = new UriBuilder(httpContext.Request.GetEncodedUrl())
+            {
+                Path = "/",
+                Query = ""
+            }.Uri;
+
+            var peer = new AirDropHubPeer(
+                serverChannel.Writer, _logger, baseUri, _options.Value.UploadPath
+            );
 
             // register the peer so that it's advertised as supporting AirDrop
             await _service.RegisterPeerAsync(peer);
@@ -191,7 +205,7 @@ namespace AirDropAnywhere.Cli.Hubs
             ) => _valueTaskSource.OnCompleted(continuation, state, token, flags);
 
             public void Reset() => _valueTaskSource.Reset();
-
+            
             public async ValueTask<TResponse> TransformAsync<TMessage, TResponse>(Func<TMessage, TResponse> transformer) where TMessage : AirDropHubMessage
             {
                 var result = await new ValueTask<AirDropHubMessage>(this, _valueTaskSource.Version);
@@ -214,11 +228,15 @@ namespace AirDropAnywhere.Cli.Hubs
         {
             private readonly ChannelWriter<MessageWithCallback> _serverQueue;
             private readonly ILogger _logger;
+            private readonly Uri _baseUri;
+            private readonly string _basePath;
 
-            public AirDropHubPeer(ChannelWriter<MessageWithCallback> serverQueue, ILogger logger)
+            public AirDropHubPeer(ChannelWriter<MessageWithCallback> serverQueue, ILogger logger, Uri baseUri, string basePath)
             {
                 _serverQueue = serverQueue ?? throw new ArgumentNullException(nameof(serverQueue));
                 _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+                _baseUri = baseUri ?? throw new ArgumentNullException(nameof(baseUri));
+                _basePath = basePath ?? throw new ArgumentNullException(nameof(basePath));
             }
             
             /// <summary>
@@ -244,12 +262,13 @@ namespace AirDropAnywhere.Cli.Hubs
                     (CanAcceptFilesRequestMessage m, AskRequest r) =>
                     {
                         m.SenderComputerName = r.SenderComputerName;
+                        m.FileIcon = r.FileIcon;
                         m.Files = r.Files
                             .Select(
                                 f => new CanAcceptFileMetadata
                                 {
-                                    FileName = f.FileName,
-                                    FileType = f.FileType
+                                    Name = f.FileName,
+                                    Type = f.FileType
                                 })
                             .ToList();
 
@@ -258,18 +277,58 @@ namespace AirDropAnywhere.Cli.Hubs
                     request
                 );
 
+                return await ExecuteAsync(
+                    requestMessage, (CanAcceptFilesResponseMessage x) => x.Accepted
+                );
+            }
+
+            /// <inheritdoc cref="AirDropPeer"/>.
+            public override async ValueTask OnFileUploadedAsync(string filePath)
+            {
+                // extract the relative path from our upload directory
+                // and use it to construct the URI that the file will be exposed
+                // at in the static file provider in Kestrel
+                var relativePath = Path.GetRelativePath(_basePath, filePath);
+                var name = Path.GetFileName(filePath);
+                var uriBuilder = new UriBuilder(_baseUri);
+                uriBuilder.Path += relativePath.Replace('\\', '/');
+                var url = uriBuilder.Uri.ToString();
+                
+                var requestMessage = await AirDropHubMessage.CreateAsync(
+                    (OnFileUploadedRequestMessage m, (string Name, string Url) state) =>
+                    {
+                        m.Name = state.Name;
+                        m.Url = state.Url;
+                        return default;
+                    },
+                    (name, url)
+                );
+
+                await ExecuteAsync(
+                    requestMessage,
+                    (OnFileUploadedResponseMessage _) => Void.Value
+                );
+            }
+
+            private async ValueTask<TTransform> ExecuteAsync<TRequest, TResponse, TTransform>(TRequest request, Func<TResponse, TTransform> transformer) 
+                where TRequest : AirDropHubMessage
+                where TResponse : AirDropHubMessage
+            {
                 var callback = _callbackPool.Get();
                 try
                 {
-                    await _serverQueue.WriteAsync(new MessageWithCallback(requestMessage, callback));
-                    return await callback.TransformAsync<CanAcceptFilesResponseMessage, bool>(
-                        x => x.Accepted
-                    );
+                    await _serverQueue.WriteAsync(new MessageWithCallback(request, callback));
+                    return await callback.TransformAsync(transformer);
                 }
                 finally
                 {
                     _callbackPool.Return(callback);
                 }
+            }
+
+            private class Void
+            {
+                public static readonly Void Value = new();
             }
         }
         

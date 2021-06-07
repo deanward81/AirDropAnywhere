@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -46,16 +47,36 @@ namespace AirDropAnywhere.Cli.Commands
                                 options => options.ConfigureAirDropDefaults()
                             )
                             .ConfigureServices(
-                                services =>
+                                (hostContext, services) =>
                                 {
+                                    var uploadPath = Path.Join(
+                                        hostContext.HostingEnvironment.ContentRootPath,
+                                        "uploads"
+                                    );
+
+                                    Directory.CreateDirectory(uploadPath);
+                                    
                                     services.Configure<StaticFileOptions>(options =>
-                                        options.FileProvider = new ManifestEmbeddedFileProvider(
-                                            typeof(ServerCommand).Assembly, "wwwroot"
-                                        )
+                                        {
+                                            options.FileProvider = new CompositeFileProvider(
+                                                // provides access to the files embedded in the assembly
+                                                new ManifestEmbeddedFileProvider(
+                                                    typeof(ServerCommand).Assembly, "wwwroot"
+                                                ),
+                                                // provides access to uploaded files
+                                                new PhysicalFileProvider(uploadPath)
+                                            );
+                                            
+                                            // we don't know what files could be uploaded using AirDrop
+                                            // so enable everything by default
+                                            options.ServeUnknownFileTypes = true;
+                                        }
+                                    );
                                     services.AddAirDrop(
                                         options =>
                                         {
                                             options.ListenPort = settings.Port;
+                                            options.UploadPath = uploadPath;
                                         }
                                     );
                                     services.AddRouting();
@@ -130,8 +151,18 @@ namespace AirDropAnywhere.Cli.Commands
         
         public class Settings : CommandSettings
         {
-            [CommandArgument(0, "<port>")]
-            public ushort Port { get; set; }
+            [CommandOption("--port")]
+            public ushort Port { get; init; } = default!;
+
+            public override ValidationResult Validate()
+            {
+                if (Port == 0)
+                {
+                    return ValidationResult.Error("Invalid port specified.");
+                }
+                
+                return base.Validate();
+            }
         }
     }
 }

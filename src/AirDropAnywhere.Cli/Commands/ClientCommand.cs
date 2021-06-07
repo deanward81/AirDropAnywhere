@@ -1,6 +1,8 @@
 using System;
+using System.IO;
 using System.Net.Http;
 using System.Net.Security;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Channels;
@@ -16,8 +18,16 @@ namespace AirDropAnywhere.Cli.Commands
 {
     internal class ClientCommand : CommandBase<ClientCommand.Settings>
     {
-        public ClientCommand(IAnsiConsole console, ILogger<ClientCommand> logger) : base(console, logger)
+        private readonly HttpClient _httpClient;
+
+        public ClientCommand(IAnsiConsole console, ILogger<ClientCommand> logger, IHttpClientFactory httpClientFactory) : base(console, logger)
         {
+            if (httpClientFactory == null)
+            {
+                throw new ArgumentNullException(nameof(httpClientFactory));
+            }
+            
+            _httpClient = httpClientFactory.CreateClient();
         }
 
         public override async Task<int> ExecuteAsync(CommandContext context, Settings settings)
@@ -77,6 +87,24 @@ namespace AirDropAnywhere.Cli.Commands
                             cancellationTokenSource.Token
                         );
                         break;
+                    
+                    case OnFileUploadedRequestMessage fileUploadedRequest:
+
+                        await clientChannel.Writer.WriteAsync(
+                            await AirDropHubMessage.CreateAsync(
+                                async (OnFileUploadedResponseMessage m, OnFileUploadedRequestMessage r) =>
+                                {
+                                    m.ReplyTo = r.Id;
+                                    
+                                    // download the file to our download path
+                                    await DownloadFileAsync(r, settings.Path);
+                                },
+                                fileUploadedRequest
+                            ),
+                            cancellationTokenSource.Token
+                        );
+                        break;
+                    
                     default:
                         Logger.LogWarning("No handler for '{MessageType}' message", message.GetType());
                         break;
@@ -156,19 +184,66 @@ namespace AirDropAnywhere.Cli.Commands
             
             return new(
                 Console.Prompt(
-                    new ConfirmationPrompt($"Incoming files from [bold]{request.SenderComputerName}[/]. Accept?")
                     new ConfirmationPrompt("Accept?")
                 )
             );
         }
         
+        private async ValueTask DownloadFileAsync(OnFileUploadedRequestMessage request, string basePath)
+        {
+            Logger.LogInformation("Downloading '{File}'...", request.Name);
+            var downloadPath = Path.Join(basePath, request.Name);
+            using var response = await _httpClient.GetAsync(request.Url);
+            if (!response.IsSuccessStatusCode)
+            {
+                Logger.LogError(
+                    "Unable to download file '{File}': {ResponseCode}", 
+                    request.Name, 
+                    response.StatusCode
+                );
+                return;
+            }
+            
+            await using var outputStream = File.Create(downloadPath);
+            await response.Content.CopyToAsync(outputStream);
+            Logger.LogInformation("Downloaded '{File}'...", request.Name);
+        }
+
         public class Settings : CommandSettings
         {
-            [CommandArgument(0, "<server>")]
-            public string Server { get; set; } = null!;
+            [CommandOption("--server")]
+            public string Server { get; init; } = null!;
             
-            [CommandArgument(0, "<port>")]
-            public ushort Port { get; set; } = default!;
+            [CommandOption("--port")]
+            public ushort Port { get; init; } = default!;
+
+            [CommandOption("--path")]
+            public string Path { get; init; } = null!;
+
+            public override ValidationResult Validate()
+            {
+                if (string.IsNullOrEmpty(Server))
+                {
+                    return ValidationResult.Error("Invalid server specified.");
+                }
+                
+                if (Port == 0)
+                {
+                    return ValidationResult.Error("Invalid port specified.");
+                }
+
+                if (string.IsNullOrEmpty(Path))
+                {
+                    return ValidationResult.Error("Invalid path specified.");
+                }
+
+                if (!Directory.Exists(Path))
+                {
+                    return ValidationResult.Error("Specified path does not exist.");
+                }
+                
+                return base.Validate();
+            }
         }
     }
 }

@@ -7,23 +7,27 @@ using AirDropAnywhere.Core.Protocol;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace AirDropAnywhere.Core
 {
     public class AirDropRouteHandler
     {
         private readonly ILogger<AirDropRouteHandler> _logger;
+        private readonly AirDropOptions _options;
         private readonly AirDropPeer _peer;
         private readonly HttpContext _ctx;
         
         public AirDropRouteHandler(
             HttpContext ctx,
             AirDropPeer peer,
+            AirDropOptions options,
             ILogger<AirDropRouteHandler> logger
         )
         {
             _ctx = ctx ?? throw new ArgumentNullException(nameof(ctx));
             _peer = peer ?? throw new ArgumentNullException(nameof(peer));
+            _options = options ?? throw new ArgumentNullException(nameof(options));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -44,6 +48,7 @@ namespace AirDropAnywhere.Core
             // to handle the to and fro of the AirDrop protocol 
             var service = ctx.RequestServices.GetRequiredService<AirDropService>();
             var logger = ctx.RequestServices.GetRequiredService<ILogger<AirDropRouteHandler>>();
+            var options = ctx.RequestServices.GetRequiredService<IOptions<AirDropOptions>>();
             var hostSpan = ctx.Request.Host.Host.AsSpan();
             var firstPartIndex = hostSpan.IndexOf('.');
             if (firstPartIndex == -1)
@@ -52,12 +57,12 @@ namespace AirDropAnywhere.Core
             }
 
             var channelId = hostSpan[..firstPartIndex];
-            if (!service.TryGetPeer(channelId.ToString(), out var channel))
+            if (!service.TryGetPeer(channelId.ToString(), out var peer))
             {
                 return NotFound();
             }
 
-            var handler = new AirDropRouteHandler(ctx, channel, logger);
+            var handler = new AirDropRouteHandler(ctx, peer, options.Value, logger);
             return executor(handler);
 
             Task NotFound()
@@ -80,7 +85,7 @@ namespace AirDropAnywhere.Core
             // mode which means discover will always return something
             // if there are any channels associated with the proxy
             var discoverRequest = await Request.ReadFromPropertyListAsync<DiscoverRequest>();
-            if (!discoverRequest.TryGetSenderRecordData(out var contactData))
+            if (!discoverRequest.TryGetSenderRecordData(out _))
             {
                 Response.StatusCode = StatusCodes.Status400BadRequest;
                 return;
@@ -123,7 +128,7 @@ namespace AirDropAnywhere.Core
             }
 
             // extract the CPIO file directly to disk
-            var extractionPath = Path.Join(Path.GetTempPath(), Utils.GetRandomString());
+            var extractionPath = Path.Join(_options.UploadPath, Utils.GetRandomString());
             if (!Directory.Exists(extractionPath))
             {
                 Directory.CreateDirectory(extractionPath);
@@ -137,7 +142,14 @@ namespace AirDropAnywhere.Core
                 await using (var requestStream = new GZipStream(Request.Body, CompressionMode.Decompress, true))
                 await using (var cpioArchiveReader = CpioArchiveReader.Create(requestStream))
                 {
-                    await cpioArchiveReader.ExtractAsync(extractionPath);
+                    var extractedFiles = await cpioArchiveReader.ExtractAsync(extractionPath, Request.HttpContext.RequestAborted);
+                    // notify our peer of each file that was extracted
+                    // this gives the peer the opportunity to download the file
+                    // before the extraction directory is removed
+                    foreach (var extractedFile in extractedFiles)
+                    {
+                        await _peer.OnFileUploadedAsync(extractedFile);
+                    }
                 }
             }
             finally

@@ -7,21 +7,18 @@ namespace AirDropAnywhere.Cli.Hubs
     [PolymorphicJsonInclude("connect", typeof(ConnectMessage))]
     [PolymorphicJsonInclude("askRequest", typeof(CanAcceptFilesRequestMessage))]
     [PolymorphicJsonInclude("askResponse", typeof(CanAcceptFilesResponseMessage))]
+    [PolymorphicJsonInclude("fileUploadRequest", typeof(OnFileUploadedRequestMessage))]
+    [PolymorphicJsonInclude("fileUploadResponse", typeof(OnFileUploadedResponseMessage))]
     internal abstract class AirDropHubMessage
     {
         public string Id { get; set; }
         public string ReplyTo { get; set; }
 
-        public static async ValueTask<TMessage> CreateAsync<TMessage, TState>(Func<TMessage, TState, ValueTask> modifier, TState state) where TMessage : AirDropHubMessage, new() where TState : class
+        public static async ValueTask<TMessage> CreateAsync<TMessage, TState>(Func<TMessage, TState, ValueTask> modifier, TState state) where TMessage : AirDropHubMessage, new()
         {
             if (modifier == null)
             {
                 throw new ArgumentNullException(nameof(modifier));
-            }
-            
-            if (state == null)
-            {
-                throw new ArgumentNullException(nameof(state));
             }
             
             var message = Create<TMessage>();

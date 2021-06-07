@@ -37,5 +37,14 @@ namespace AirDropAnywhere.Core
         /// <c>true</c> if the receiver wants to accept the file transfer, <c>false</c> otherwise.
         /// </returns>
         public abstract ValueTask<bool> CanAcceptFilesAsync(AskRequest request);
+        
+        /// <summary>
+        /// Notifies the peer that a file has been uploaded. This method is for every
+        /// file extracted from the archive sent by an AirDrop-compatible device.
+        /// </summary>
+        /// <param name="filePath">
+        /// Path to an extracted file.
+        /// </param>
+        public abstract ValueTask OnFileUploadedAsync(string filePath);
     }
 }
