@@ -27,7 +27,7 @@ namespace AirDropAnywhere.Cli.Commands
                 throw new ArgumentNullException(nameof(httpClientFactory));
             }
             
-            _httpClient = httpClientFactory.CreateClient();
+            _httpClient = httpClientFactory.CreateClient("airdrop");
         }
 
         public override async Task<int> ExecuteAsync(CommandContext context, Settings settings)

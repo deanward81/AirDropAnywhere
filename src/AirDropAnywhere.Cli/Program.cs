@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Net.Http;
+using System.Net.Security;
 using System.Threading.Tasks;
 using AirDropAnywhere.Cli.Commands;
 using AirDropAnywhere.Cli.Logging;
@@ -15,9 +17,22 @@ namespace AirDropAnywhere.Cli
         public const string ApplicationName = "🌐 AirDrop Anywhere";
         public static Task<int> Main(string[] args)
         {
-            var services = new ServiceCollection()
+            var services = new ServiceCollection();
+                
+            services
+                .AddHttpClient("airdrop")
+                .ConfigurePrimaryHttpMessageHandler(
+                    () => new SocketsHttpHandler
+                    {
+                        // we using a self-signed certificate, so ignore it
+                        SslOptions = new SslClientAuthenticationOptions
+                        {
+                            RemoteCertificateValidationCallback = delegate { return true; }
+                        }
+                    });
+            
+            services
                 .AddSingleton(AnsiConsole.Console)
-                .AddHttpClient()
                 .AddLogging(
                     builder =>
                     {
