@@ -42,11 +42,8 @@ namespace AirDropAnywhere.Cli.Commands
                                     builder.AddProvider(new SpectreInlineLoggerProvider(Console));
                                 }
                             )
-                            .ConfigureAirDrop(
-                                options =>
-                                {
-                                    options.ListenPort = settings.Port;
-                                }
+                            .ConfigureKestrel(
+                                options => options.ConfigureAirDropDefaults()
                             )
                             .ConfigureServices(
                                 services =>
@@ -55,6 +52,11 @@ namespace AirDropAnywhere.Cli.Commands
                                         options.FileProvider = new ManifestEmbeddedFileProvider(
                                             typeof(ServerCommand).Assembly, "wwwroot"
                                         )
+                                    services.AddAirDrop(
+                                        options =>
+                                        {
+                                            options.ListenPort = settings.Port;
+                                        }
                                     );
                                     services.AddRouting();
                                     services
