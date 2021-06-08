@@ -24,6 +24,6 @@ jobs:
     - name: .NET Test
       run: dotnet test -c Release --no-build --nologo
     - name: .NET Pack
-      run: dotnet pack --no-build -c Release --nologo /p:PackageOutputPath=${env:GITHUB_WORKSPACE}\.nupkgs
+      run: dotnet pack --no-build -c Release --nologo /p:PackageOutputPath=${{ env.GITHUB_WORKSPACE }}\.nupkgs
     - name: Push to GH Packages
-      run: dotnet nuget push ${env:GITHUB_WORKSPACE}/.nupkgs/*.nupkg  --source https://nuget.pkg.github.com/deanward81/index.json --api-key ${{ secrets.GITHUB_TOKEN }}
+      run: dotnet nuget push ${{ env.GITHUB_WORKSPACE }}/.nupkgs/*.nupkg  --source https://nuget.pkg.github.com/deanward81/index.json --api-key ${{ secrets.GITHUB_TOKEN }}
