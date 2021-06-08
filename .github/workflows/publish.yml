@@ -8,7 +8,7 @@ on:
     - 'docs/**' # Don't run workflow when files are only in the /docs directory
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, 'ci skip')"
     steps:
@@ -26,4 +26,4 @@ jobs:
     - name: .NET Pack
       run: dotnet pack --no-build -c Release --nologo /p:PackageOutputPath=${env:GITHUB_WORKSPACE}\.nupkgs
     - name: Push to GH Packages
-      run: dotnet nuget push ${env:GITHUB_WORKSPACE}/.nupkgs/*.nupkg  --source https://nuget.pkg.github.com/deanward81/index.json --api-key ${GITHUB_TOKEN}
+      run: dotnet nuget push ${env:GITHUB_WORKSPACE}/.nupkgs/*.nupkg  --source https://nuget.pkg.github.com/deanward81/index.json --api-key ${{ secrets.GITHUB_TOKEN }}
