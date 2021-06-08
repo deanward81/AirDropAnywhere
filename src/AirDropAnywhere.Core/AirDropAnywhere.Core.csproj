@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <TargetFramework>net5.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>AirDropAnywhere</PackageId>
   </PropertyGroup>
 
   <ItemGroup>
