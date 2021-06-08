@@ -78,7 +78,7 @@ namespace AirDropAnywhere.Tests
             
             // we're expecting 3 files, in a specific directory structure
             var directoryInfo = new DirectoryInfo(_outputPath);
-            var files = directoryInfo.GetFiles("*.*", SearchOption.AllDirectories);
+            var files = directoryInfo.GetFiles("*.*", SearchOption.AllDirectories).OrderBy(x => x.FullName).ToArray();
             Assert.Equal(3, files.Length);
             Assert.Collection(
                 files,
