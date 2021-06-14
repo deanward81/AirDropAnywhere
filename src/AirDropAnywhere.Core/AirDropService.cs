@@ -84,6 +84,13 @@ namespace AirDropAnywhere.Core
             }
         }
 
+        /// <summary>
+        /// Registers an <see cref="AirDropPeer"/> so that it becomes discoverable to
+        /// AirDrop-compatible devices.
+        /// </summary>
+        /// <param name="peer">
+        /// An instance of <see cref="AirDropPeer"/>.
+        /// </param>
         public ValueTask RegisterPeerAsync(AirDropPeer peer)
         {
             _logger.LogInformation("Registering AirDrop peer '{Id}'...", peer.Id);
@@ -103,8 +110,8 @@ namespace AirDropAnywhere.Core
             // keep a record of the peer and its service
             _peersById.AddOrUpdate(
                 peer.Id,
-                (key, value) => value,
-                (key, oldValue, newValue) => newValue,
+                (_, value) => value,
+                (_, _, newValue) => newValue,
                 new PeerMetadata(peer, service)
             );
             
@@ -112,6 +119,13 @@ namespace AirDropAnywhere.Core
             return _mDnsServer!.RegisterAsync(service);
         }
 
+        /// <summary>
+        /// Unregisters an <see cref="AirDropPeer"/> so that it is no longer discoverable by
+        /// AirDrop-compatible devices. If the peer is not registered then this operation is no-op.
+        /// </summary>
+        /// <param name="peer">
+        /// A previously registered instance of <see cref="AirDropPeer"/>.
+        /// </param>
         public ValueTask UnregisterPeerAsync(AirDropPeer peer)
         {
             _logger.LogInformation("Unregistering AirDrop peer '{Id}'...", peer.Id);
@@ -123,6 +137,17 @@ namespace AirDropAnywhere.Core
             return _mDnsServer!.UnregisterAsync(peerMetadata.Service);
         }
 
+        /// <summary>
+        /// Attempts to get an <see cref="AirDropPeer"/> by its unique identifier.
+        /// </summary>
+        /// <param name="id">Unique identifier of a peer.</param>
+        /// <param name="peer">
+        /// If found, the instance of <see cref="AirDropPeer"/> identified by <paramref name="id"/>,
+        /// <c>null</c> otherwise.
+        /// </param>
+        /// <returns>
+        /// <c>true</c> if the peer was found, <c>false</c> otherwise.
+        /// </returns>
         public bool TryGetPeer(string id, [MaybeNullWhen(false)] out AirDropPeer peer)
         {
             if (!_peersById.TryGetValue(id, out var peerMetadata))
