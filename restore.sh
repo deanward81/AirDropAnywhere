@@ -84,7 +84,7 @@ fi
 
 # check if dotnet is installed
 DOTNET_EXE=$(which dotnet)
-DOTNET_VERSION=$(cat global.json | jq .sdk.version)
+DOTNET_VERSION=$(cat global.json | jq --raw-output '.sdk.version')
 export DOTNET_ROOT=/usr/local/share/dotnet
 export PATH=$PATH:$DOTNET_ROOT
 if [ ! -x "$DOTNET_EXE" ]; then
