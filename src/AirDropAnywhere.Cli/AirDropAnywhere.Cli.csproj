@@ -2,16 +2,16 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net5.0</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
     <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\AirDropAnywhere.Core\AirDropAnywhere.Core.csproj" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="5.0.6" />
-    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="5.0.6" />
-    <PackageReference Include="Spectre.Console" Version="0.39.1-preview.0.31" />
-    <PackageReference Include="Spectre.Cli.Extensions.DependencyInjection" Version="0.4.0" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" />
+    <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="Spectre.Cli.Extensions.DependencyInjection" />
   </ItemGroup>
 
   <ItemGroup>

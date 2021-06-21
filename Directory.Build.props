@@ -17,6 +17,8 @@
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <IsPackable>false</IsPackable>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
   </PropertyGroup>
   <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
@@ -26,7 +28,7 @@
     <ProjectCapability Include="DynamicFileNesting" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Nerdbank.GitVersioning" Version="3.4.205" PrivateAssets="all" IncludeAssets="runtime;build;native;contentfiles;analyzers" />
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All" IncludeAssets="runtime;build;native;contentfiles;analyzers" />
+    <PackageReference Include="Nerdbank.GitVersioning" PrivateAssets="all" IncludeAssets="runtime;build;native;contentfiles;analyzers" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" IncludeAssets="runtime;build;native;contentfiles;analyzers" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,21 @@
+<Project>
+    <PropertyGroup>
+        <!-- TODO: sync this with global.json -->
+        <RuntimeVersion>6.0.0-preview.6.21313.2</RuntimeVersion>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageVersion Include="coverlet.collector" Version="3.0.3" />
+        <PackageVersion Include="Makaretu.Dns" Version="2.0.1" />
+        <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="$(RuntimeVersion)" />
+        <PackageVersion Include="Microsoft.Extensions.FileProviders.Embedded" Version="$(RuntimeVersion)" />
+        <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="16.10.0" />
+        <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="1.0.0" />
+        <PackageVersion Include="Nerdbank.GitVersioning" Version="3.4.216" />
+        <PackageVersion Include="plist-cil" Version="2.2.0" />
+        <PackageVersion Include="Spectre.Cli.Extensions.DependencyInjection" Version="0.4.0" />
+        <PackageVersion Include="Spectre.Console" Version="0.40.1-preview.0.2" />
+        <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="$(RuntimeVersion)" />
+        <PackageVersion Include="xunit" Version="2.4.1" />
+        <PackageVersion Include="xunit.runner.visualstudio" Version="2.4.3" />
+    </ItemGroup>
+</Project>

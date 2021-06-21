@@ -72,6 +72,9 @@ namespace AirDropAnywhere.Tests
         [Fact]
         public async Task ExtractNestedFiles()
         {
+            
+            string GetNormalizedPath(FileInfo fileInfo) => Path.GetRelativePath(_outputPath, fileInfo.FullName).Replace('\\', '/');
+
             await using var fileStream = File.OpenRead("test.nested.cpio");
             await using var cpioArchiveReader = CpioArchiveReader.Create(fileStream);
             await cpioArchiveReader.ExtractAsync(_outputPath);
@@ -82,9 +85,9 @@ namespace AirDropAnywhere.Tests
             Assert.Equal(3, files.Length);
             Assert.Collection(
                 files,
-                f => Assert.Equal("test1/test.txt", Path.GetRelativePath(_outputPath, f.FullName)),
-                f => Assert.Equal("test2/test.log", Path.GetRelativePath(_outputPath, f.FullName)),
-                f => Assert.Equal("test3/test4/test.csv", Path.GetRelativePath(_outputPath, f.FullName))
+                f => Assert.Equal("test1/test.txt", GetNormalizedPath(f)),
+                f => Assert.Equal("test2/test.log", GetNormalizedPath(f)),
+                f => Assert.Equal("test3/test4/test.csv", GetNormalizedPath(f))
             );
         }
 
