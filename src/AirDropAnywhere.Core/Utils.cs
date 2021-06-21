@@ -121,10 +121,7 @@ namespace AirDropAnywhere.Core
             const string charset = "abcdefghijklmnopqrstuvwxyz0123456789";
             Span<byte> bytes = stackalloc byte[12];
             Span<char> chars = stackalloc char[12];
-            using (var crypto = new RNGCryptoServiceProvider())
-            {
-                crypto.GetNonZeroBytes(bytes);
-            }
+            RandomNumberGenerator.Fill(bytes);
 
             for (var i = 0; i < bytes.Length; i++)
             {

@@ -59,12 +59,15 @@ namespace AirDropAnywhere.Cli.Commands
                                     services.Configure<StaticFileOptions>(options =>
                                         {
                                             options.FileProvider = new CompositeFileProvider(
-                                                // provides access to the files embedded in the assembly
-                                                new ManifestEmbeddedFileProvider(
-                                                    typeof(ServerCommand).Assembly, "wwwroot"
-                                                ),
-                                                // provides access to uploaded files
-                                                new PhysicalFileProvider(uploadPath)
+                                                new IFileProvider[]
+                                                {
+                                                    // provides access to the files embedded in the assembly
+                                                    new ManifestEmbeddedFileProvider(
+                                                        typeof(ServerCommand).Assembly, "wwwroot"
+                                                    ),
+                                                    // provides access to uploaded files
+                                                    new PhysicalFileProvider(uploadPath)
+                                                }
                                             );
                                             
                                             // we don't know what files could be uploaded using AirDrop
@@ -125,10 +128,13 @@ namespace AirDropAnywhere.Cli.Commands
                     }
                 );
 
-            var serverAddresses = webHost!.ServerFeatures.Get<IServerAddressesFeature>().Addresses;
-            foreach (var serverAddress in serverAddresses)
+            var feature = webHost!.ServerFeatures.Get<IServerAddressesFeature>();
+            if (feature != null)
             {
-                Logger.LogInformation("Listening on {Url}", serverAddress);
+                foreach (var address in feature.Addresses)
+                {
+                    Logger.LogInformation("Listening on {Url}", address);
+                }
             }
 
             Logger.LogInformation("Waiting for AirDrop clients...");

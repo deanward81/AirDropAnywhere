@@ -1,8 +1,8 @@
 using System;
+using System.Net;
 using System.Runtime.InteropServices;
 using AirDropAnywhere.Core;
-using AirDropAnywhere.Core.HttpTransport;
-using Microsoft.AspNetCore.Connections;
+using Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets;
 using Microsoft.Extensions.Hosting;
 
 // ReSharper disable once CheckNamespace
@@ -32,10 +32,25 @@ namespace Microsoft.Extensions.DependencyInjection
             services.AddSingleton<AirDropService>();
             services.AddSingleton<IHostedService>(s => s.GetService<AirDropService>()!);
             services.AddOptions<AirDropOptions>().ValidateDataAnnotations();
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-                services.AddSingleton<IConnectionListenerFactory, AwdlSocketTransportFactory>();
-            }
+
+            services.Configure<SocketTransportOptions>(
+                x =>
+                {
+                    // on macOS, ensure we listen on the awdl0 interface
+                    // by setting the SO_RECV_ANYIF socket option
+                    if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                    {
+                        x.CreateBoundListenSocket = endpoint =>
+                        {
+                            var socket = SocketTransportOptions.CreateDefaultBoundListenSocket(endpoint);
+                            if (endpoint is IPEndPoint)
+                            {
+                                socket.SetAwdlSocketOption();
+                            }
+                            return socket;
+                        };
+                    }
+                });
 
             if (setupAction != null)
             {

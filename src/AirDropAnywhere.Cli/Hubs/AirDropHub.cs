@@ -53,7 +53,7 @@ namespace AirDropAnywhere.Cli.Hubs
         {
             var serverChannel = Channel.CreateUnbounded<MessageWithCallback>();
             var callbacks = new Dictionary<string, CallbackValueTaskSource>();
-            var httpContext = Context.GetHttpContext();
+            var httpContext = Context.GetHttpContext()!;
             var baseUri = new UriBuilder(httpContext.Request.GetEncodedUrl())
             {
                 Path = "/",
