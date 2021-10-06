@@ -1,7 +1,7 @@
 <Project>
     <PropertyGroup>
         <!-- TODO: sync this with global.json -->
-        <RuntimeVersion>6.0.0-preview.6.21313.2</RuntimeVersion>
+        <RuntimeVersion>6.0.0-rc.1.21452.15</RuntimeVersion>
     </PropertyGroup>
     <ItemGroup>
         <PackageVersion Include="coverlet.collector" Version="3.0.3" />
@@ -14,7 +14,7 @@
         <PackageVersion Include="plist-cil" Version="2.2.0" />
         <PackageVersion Include="Spectre.Cli.Extensions.DependencyInjection" Version="0.4.0" />
         <PackageVersion Include="Spectre.Console" Version="0.40.1-preview.0.2" />
-        <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="$(RuntimeVersion)" />
+        <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="6.0.0-rc.1.21451.13" />
         <PackageVersion Include="xunit" Version="2.4.1" />
         <PackageVersion Include="xunit.runner.visualstudio" Version="2.4.3" />
     </ItemGroup>
