@@ -17,8 +17,6 @@ jobs:
       with:
         fetch-depth: 0
     - uses: actions/setup-dotnet@v1
-      with:
-          dotnet-version: '6.0.100-preview.6.21313.2'
     - name: .NET Build
       run: dotnet build -c Release --nologo
     - name: .NET Test
