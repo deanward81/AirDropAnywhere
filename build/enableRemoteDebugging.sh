@@ -57,7 +57,7 @@ else
     exit
 fi
 
-if [ -x "~/.ssh/id_rsa" ]; then
+if [ ! -f ~/.ssh/id_rsa_yubikey.pub -a ! -f ~/.ssh/id_rsa ]; then
     cat << EOM
 --------------------------------------------------------------
 |                                                            |
@@ -100,7 +100,11 @@ cat << EOM
 |                                                            |
 --------------------------------------------------------------
 EOM
-cat ~/.ssh/id_rsa.pub | ssh -oStrictHostKeyChecking=no pi@$PI_HOSTNAME "cat >> ~/.ssh/authorized_keys"
+if [ -f ~/.ssh/id_rsa_yubikey.pub ]; then
+    cat ~/.ssh/id_rsa_yubikey.pub | ssh -oStrictHostKeyChecking=no pi@$PI_HOSTNAME "cat >> ~/.ssh/authorized_keys"
+else
+    cat ~/.ssh/id_rsa.pub | ssh -oStrictHostKeyChecking=no pi@$PI_HOSTNAME "cat >> ~/.ssh/authorized_keys"
+fi
 echo "${green:-}Added public key to authorized_keys on '$PI_HOSTNAME'!${normal:-}"
 
 cat << EOM
