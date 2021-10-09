@@ -28,9 +28,8 @@
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "RaspberryPiDeploy",
-            "program": "~/dotnet/dotnet",
+            "program": "./AirDropAnywhere.Cli",
             "args": [
-                "AirDropAnywhere.Cli.dll",
                 "server",
                 "--port",
                 "8080"

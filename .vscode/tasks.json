@@ -46,7 +46,7 @@
                 "publish",
                 "-r:linux-arm",
                 "-o:bin/linux-arm/publish",
-                "--no-self-contained"
+                "--self-contained"
             ],
             "problemMatcher": "$msCompile"
         },
