@@ -39,7 +39,7 @@ namespace AirDropAnywhere.Core
             if (!hasAwdlInterface)
             {
                 throw new InvalidOperationException(
-                    "No awdl0 interface found on this system. AirDrop Anywhere is currently only supported on systems that support the AWDL protocol."
+                    "No awdl0 interface found on this system. AirDrop Anywhere is currently only supported on systems that support the AWDL or OWL protocol."
                 );
             }
         }
