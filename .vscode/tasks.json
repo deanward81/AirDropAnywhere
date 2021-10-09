@@ -46,7 +46,7 @@
                 "publish",
                 "-r:linux-arm",
                 "-o:bin/linux-arm/publish",
-                "--no-self-contained"
+                "--self-contained"
             ],
             "problemMatcher": "$msCompile"
         },
@@ -58,8 +58,16 @@
                 "reveal": "always",
                 "panel": "new"
             },
-            "command": "rsync -rvuz --rsh=ssh bin/linux-arm/publish/ pi@dward-pi:~/src/${workspaceFolderBasename}/",
-            "problemMatcher": []
+            "command": "rsync -rvuz --rsh=ssh bin/linux-arm/publish/ pi@${input:host}:~/src/${workspaceFolderBasename}/",
+            "problemMatcher": [],
+        }
+    ],
+    "inputs": [
+        {
+            "id": "host",
+            "description": "Raspberry Pi host to deploy to",
+            "default": "dward-pi",
+            "type": "promptString"
         }
     ]
 }

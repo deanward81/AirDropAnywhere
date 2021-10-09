@@ -10,7 +10,7 @@
             "request": "launch",
             "preLaunchTask": "build",
             // If you have changed target frameworks, make sure to update the program path.
-            "program": "${workspaceFolder}/bin/Debug/net5.0/${workspaceFolderBasename}.dll",
+            "program": "${workspaceFolder}/bin/Debug/net6.0/${workspaceFolderBasename}.dll",
             "args": [],
             "cwd": "${workspaceFolder}",
             // For more information about the 'console' field, see https://aka.ms/VSCode-CS-LaunchJson-Console
@@ -28,21 +28,31 @@
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "RaspberryPiDeploy",
-            "program": "dotnet",
+            "program": "./AirDropAnywhere.Cli",
             "args": [
-                "/home/pi/src/${workspaceFolderBasename}/AirDropAnywhere.Cli.dll"
+                "server",
+                "--port",
+                "8080"
             ],
-            "cwd": "/home/pi/src/${workspaceFolderBasename}",
+            "cwd": "~/src/${workspaceFolderBasename}",
             "stopAtEntry": false,
             "console": "internalConsole",
             "pipeTransport": {
                 "pipeCwd": "${workspaceFolder}",
                 "pipeProgram": "ssh",
                 "pipeArgs": [
-                    "pi@dward-pi"
+                    "pi@${input:host}"
                 ],
-                "debuggerPath": "/home/pi/vsdbg/vsdbg"
+                "debuggerPath": "~/vsdbg/vsdbg"
             }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "host",
+            "description": "Raspberry Pi host to debug",
+            "default": "dward-pi",
+            "type": "promptString"
         }
     ]
 }

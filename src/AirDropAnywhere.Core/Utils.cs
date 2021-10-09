@@ -22,10 +22,10 @@ namespace AirDropAnywhere.Core
         public static void AssertPlatform()
         {
             // TODO: support linux
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && !RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
                 throw new InvalidOperationException(
-                    "AirDropAnywhere is currently only supported on MacOS because it needs support for the AWDL protocol."
+                    "AirDropAnywhere is currently only supported on MacOS or Linux because it needs support for either the AWDL or OWL protocol."
                 );
             }
         }
@@ -39,7 +39,7 @@ namespace AirDropAnywhere.Core
             if (!hasAwdlInterface)
             {
                 throw new InvalidOperationException(
-                    "No awdl0 interface found on this system. AirDrop.NET is currently only supported on systems that support the AWDL protocol."
+                    "No awdl0 interface found on this system. AirDrop Anywhere is currently only supported on systems that support the AWDL or OWL protocol."
                 );
             }
         }
@@ -55,7 +55,7 @@ namespace AirDropAnywhere.Core
         {
             socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, 1);
             
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             {
                 return;
             }
