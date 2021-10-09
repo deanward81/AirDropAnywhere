@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AirDropAnywhere.Cli.Hubs;
 using AirDropAnywhere.Cli.Logging;
+using AirDropAnywhere.Core.Certificates;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -27,6 +28,12 @@ namespace AirDropAnywhere.Cli.Commands
         {
             var webHost = default(IWebHost);
             using var cancellationTokenSource = new CancellationTokenSource();
+
+            Logger.LogInformation(
+                "Generating self-signed certificate for HTTPS"
+            );
+
+            using var cert = CertificateManager.Create();
             
             await Console.Status()
                 .Spinner(Spinner.Known.Earth)
@@ -34,6 +41,7 @@ namespace AirDropAnywhere.Cli.Commands
                     "Starting AirDrop services...",
                     async _ =>
                     {
+                        
                         webHost = WebHost.CreateDefaultBuilder()
                             .ConfigureLogging(
                                 (hostContext, builder) =>
@@ -44,7 +52,7 @@ namespace AirDropAnywhere.Cli.Commands
                                 }
                             )
                             .ConfigureKestrel(
-                                options => options.ConfigureAirDropDefaults()
+                                options => options.ConfigureAirDropDefaults(cert)
                             )
                             .ConfigureServices(
                                 (hostContext, services) =>

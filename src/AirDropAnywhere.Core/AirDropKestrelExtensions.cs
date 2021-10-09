@@ -1,3 +1,5 @@
+using System;
+using System.Security.Cryptography.X509Certificates;
 using AirDropAnywhere.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,14 +17,19 @@ namespace Microsoft.AspNetCore.Hosting
         /// Configures AirDrop defaults for Kestrel.
         /// </summary>
         /// <param name="options">A <see cref="KestrelServerOptions"/> instance to configure.</param>
-        public static void ConfigureAirDropDefaults(this KestrelServerOptions options)
+        /// <param name="cert">An <see cref="X509Certificate2"/> representing the certificate to use for the AirDrop HTTPS endpoint.</param>
+        public static void ConfigureAirDropDefaults(this KestrelServerOptions options, X509Certificate2 cert)
         {
+            if (cert == null)
+            {
+                throw new ArgumentNullException(nameof(cert));
+            }
+            
             var airDropOptions = options.ApplicationServices.GetRequiredService<IOptions<AirDropOptions>>();
             options.ConfigureEndpointDefaults(
                 endpointDefaults =>
                 {
-                    // TODO: use a self-generated certificate
-                    endpointDefaults.UseHttps();
+                    endpointDefaults.UseHttps(cert);
                 });
 
             options.ListenAnyIP(airDropOptions.Value.ListenPort);
