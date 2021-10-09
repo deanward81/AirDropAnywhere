@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
@@ -48,17 +49,18 @@ namespace AirDropAnywhere.Core
                 Interop.StartAWDLBrowsing();
             }
             
-            // we only support binding to the AWDL interface for mDNS
-            // and existence of this interface is asserted when
-            // this class is instantiated - GetNetworkInterfaces will
-            // only return interfaces that support an implementation of AWDL.
-            var networkInterfaces = GetNetworkInterfaces(i => i.IsAwdlInterface());
+            // we support binding to all interfaces for mDNS
+            // so that we can answer queries for our HTTP endpoints
+            var networkInterfaces = GetNetworkInterfaces();
 
             _cancellationTokenSource = new CancellationTokenSource();
             _mDnsServer = new MulticastDnsServer(networkInterfaces, _cancellationTokenSource.Token);
-
+            
             _logger.LogInformation("Starting mDNS listener...");
             await _mDnsServer.StartAsync();
+            
+            _logger.LogInformation("Registering AirDrop HTTP service with mDNS...");
+            await _mDnsServer.RegisterAsync(CreateHttpMulticastDnsService());
         }
 
         async Task IHostedService.StopAsync(CancellationToken cancellationToken)
@@ -94,19 +96,9 @@ namespace AirDropAnywhere.Core
         public ValueTask RegisterPeerAsync(AirDropPeer peer)
         {
             _logger.LogInformation("Registering AirDrop peer '{Id}'...", peer.Id);
-            
-            var service = new MulticastDnsService.Builder()
-                .SetNames("_airdrop._tcp", peer.Id, peer.Id)
-                .AddEndpoints(
-                    GetNetworkInterfaces()
-                        .Select(i => i.GetIPProperties())
-                        .SelectMany(p => p.UnicastAddresses)
-                        .Where(p => !IPAddress.IsLoopback(p.Address))
-                        .Select(ip => new IPEndPoint(ip.Address, _optionsMonitor.CurrentValue.ListenPort))
-                )
-                .AddProperty("flags", ((uint) AirDropReceiverFlags.Default).ToString())
-                .Build();
 
+            var service = CreatePeerMulticastDnsService(peer);
+            
             // keep a record of the peer and its service
             _peersById.AddOrUpdate(
                 peer.Id,
@@ -159,14 +151,36 @@ namespace AirDropAnywhere.Core
             peer = peerMetadata.Peer;
             return true;
         }
+
+        private MulticastDnsService CreatePeerMulticastDnsService(AirDropPeer peer) =>
+            new MulticastDnsService.Builder()
+                .SetNames("_airdrop._tcp", peer.Id, peer.Id)
+                .AddEndpoints(GetAllEndpoints(GetAwdlInterfaces()))
+                .AddProperty("flags", ((uint) AirDropReceiverFlags.Default).ToString())
+                .Build();
+        
+        private MulticastDnsService CreateHttpMulticastDnsService() =>
+            new MulticastDnsService.Builder()
+                .SetNames("_airdrop_proxy._tcp", "airdrop", "airdrop")
+                .AddEndpoints(GetAllEndpoints(GetNetworkInterfaces()))
+                .Build();
+
+        private IEnumerable<IPEndPoint> GetAllEndpoints(IEnumerable<NetworkInterface> interfaces) =>
+            interfaces
+                .Select(i => i.GetIPProperties())
+                .SelectMany(p => p.UnicastAddresses)
+                .Where(p => !IPAddress.IsLoopback(p.Address))
+                .Select(ip => new IPEndPoint(ip.Address, _optionsMonitor.CurrentValue.ListenPort));
+
+        private static ImmutableArray<NetworkInterface> GetAwdlInterfaces() =>
+            GetNetworkInterfaces(i => i.IsAwdlInterface());
         
         private static ImmutableArray<NetworkInterface> GetNetworkInterfaces(Func<NetworkInterface, bool>? filter = null)
         {
             var networkInterfaces = NetworkInterface.GetAllNetworkInterfaces()
                 .Where(i => i.SupportsMulticast)
                 .Where(i => i.OperationalStatus == OperationalStatus.Up)
-                .Where(i => i.NetworkInterfaceType != NetworkInterfaceType.Ppp)
-                .Where(i => i.IsAwdlInterface());
+                .Where(i => i.NetworkInterfaceType != NetworkInterfaceType.Ppp);
 
             if (filter != null)
             {

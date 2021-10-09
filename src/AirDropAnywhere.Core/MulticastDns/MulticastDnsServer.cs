@@ -286,7 +286,8 @@ namespace AirDropAnywhere.Core.MulticastDns
                     .GetIPProperties()
                     .UnicastAddresses
                     .Select(x => x.Address)
-                    .Where(x => x.AddressFamily != AddressFamily.InterNetworkV6 || x.IsIPv6LinkLocal)
+                    .Where(ip => !IPAddress.IsLoopback(ip))
+                    .Where(ip => ip.AddressFamily != AddressFamily.InterNetworkV6 || ip.IsIPv6LinkLocal)
                 ;
         }
         
