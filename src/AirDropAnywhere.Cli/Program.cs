@@ -1,7 +1,7 @@
-﻿using System;
-using System.Net.Http;
+﻿using System.Net.Http;
 using System.Net.Security;
 using System.Threading.Tasks;
+using AirDropAnywhere.Cli.Certificates;
 using AirDropAnywhere.Cli.Commands;
 using AirDropAnywhere.Cli.Logging;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,6 +33,7 @@ namespace AirDropAnywhere.Cli
             
             services
                 .AddSingleton(AnsiConsole.Console)
+                .AddSingleton<CertificateManager>()
                 .AddLogging(
                     builder =>
                     {

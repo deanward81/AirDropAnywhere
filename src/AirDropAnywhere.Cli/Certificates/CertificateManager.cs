@@ -4,14 +4,22 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using Microsoft.Extensions.Logging;
 
-namespace AirDropAnywhere.Core.Certificates
+namespace AirDropAnywhere.Cli.Certificates
 {
     /// <summary>
-    /// Generates a self-signed certificate for the AirDrop HTTPS endpoint.
+    /// Manages self-signed certificates for the AirDrop HTTPS endpoint.
     /// </summary>
-    public static class CertificateManager
+    internal class CertificateManager
     {
+        private readonly ILogger<CertificateManager> _logger;
+
+        public CertificateManager(ILogger<CertificateManager> logger)
+        {
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
+        
         /// <summary>
         /// This OID is in the badly-documented "private" range based upon this ServerFault
         /// answer: https://serverfault.com/a/861475. We should be fine to use this
@@ -26,18 +34,54 @@ namespace AirDropAnywhere.Core.Certificates
         private const string AirDropHttpsDistinguishedName = "CN=" + AirDropHttpsDnsName;
 
         /// <summary>
-        /// Creates a self-signed certificate suitable for serving requests over
+        /// Gets or creates a self-signed certificate suitable for serving requests over
         /// AirDrop's HTTPS endpoint
         /// </summary>
         /// <returns>
         /// An <see cref="X509Certificate2"/> representing the self-signed certificate. 
         /// </returns>
-        public static X509Certificate2 Create()
+        public X509Certificate2 GetOrCreate()
         {
+            const StoreName storeName = StoreName.My;
+            const StoreLocation storeLocation = StoreLocation.CurrentUser;
+            
+            List<X509Certificate2> validCertificates;
+            using (var store = new X509Store(storeName, storeLocation))
+            {
+                store.Open(OpenFlags.ReadOnly);
+                validCertificates = store.Certificates
+                        .Where(c => HasOid(c, AirDropHttpsOid) && IsValidCertificate(c, DateTimeOffset.Now))
+                        .ToList();
+            }
+
+            if (validCertificates.Count > 0)
+            {
+                _logger.LogInformation(
+                    "Found valid self-signed certificate for AirDrop HTTP services..."
+                );
+
+                return validCertificates[0];
+            }
+            
+            _logger.LogInformation(
+                "Generating self-signed certificate for AirDrop HTTP services..."
+            );
+            
             // TODO: make this CreateOrGet so we don't keep generating a new certificate 
             // everytime the service starts. We can store the created certificate in the 
             // user's private X509 store
-            return CreateCertificate(DateTimeOffset.Now, DateTimeOffset.Now.AddYears(1));
+            var cert = CreateCertificate(DateTimeOffset.Now, DateTimeOffset.Now.AddYears(1));
+            using (var store = new X509Store(storeName, storeLocation))
+            {
+                store.Open(OpenFlags.ReadWrite);
+                store.Add(cert);
+                store.Close();
+            }
+            
+            _logger.LogInformation(
+                "Generated self-signed certificate for AirDrop HTTP services 🎉"
+            );
+            return cert;
         }
         
         /// <summary>
