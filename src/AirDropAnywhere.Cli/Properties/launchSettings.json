@@ -10,7 +10,7 @@
     },
     "Client": {
       "commandName": "Project",
-      "commandLineArgs": "client --server localhost --port 8181 --path downloads",
+      "commandLineArgs": "client --path downloads",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Local"
       }

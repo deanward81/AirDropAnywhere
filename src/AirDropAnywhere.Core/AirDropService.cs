@@ -25,9 +25,9 @@ namespace AirDropAnywhere.Core
         private readonly ILogger<AirDropService> _logger;
         private readonly ConcurrentDictionary<string, PeerMetadata> _peersById = new();
         
-        private MulticastDnsServer? _mDnsServer;
+        private MulticastDnsManager? _mDnsManager;
         private CancellationTokenSource? _cancellationTokenSource;
-        
+
         public AirDropService(
             IOptionsMonitor<AirDropOptions> optionsMonitor,
             ILogger<AirDropService> logger
@@ -54,13 +54,10 @@ namespace AirDropAnywhere.Core
             var networkInterfaces = GetNetworkInterfaces();
 
             _cancellationTokenSource = new CancellationTokenSource();
-            _mDnsServer = new MulticastDnsServer(networkInterfaces, _cancellationTokenSource.Token);
-            
-            _logger.LogInformation("Starting mDNS listener...");
-            await _mDnsServer.StartAsync();
-            
+            _logger.LogInformation("Initializing mDNS...");
+            _mDnsManager = await MulticastDnsManager.CreateAsync(networkInterfaces, _cancellationTokenSource.Token);
             _logger.LogInformation("Registering AirDrop HTTP service with mDNS...");
-            await _mDnsServer.RegisterAsync(CreateHttpMulticastDnsService());
+            await _mDnsManager.RegisterAsync(CreateHttpMulticastDnsService());
         }
 
         async Task IHostedService.StopAsync(CancellationToken cancellationToken)
@@ -71,11 +68,11 @@ namespace AirDropAnywhere.Core
                 _cancellationTokenSource = null;
             }
 
-            if (_mDnsServer != null)
+            if (_mDnsManager != null)
             {
-                _logger.LogInformation("Stopping mDNS listener...");
-                await _mDnsServer.StopAsync();
-                _mDnsServer = null;
+                _logger.LogInformation("Stopping mDNS...");
+                await _mDnsManager.DisposeAsync();
+                _mDnsManager = null;
             }
 
             // on macOS, make sure AWDL is stopped by the OS
@@ -102,13 +99,13 @@ namespace AirDropAnywhere.Core
             // keep a record of the peer and its service
             _peersById.AddOrUpdate(
                 peer.Id,
-                (_, value) => value,
-                (_, _, newValue) => newValue,
+                static (_, value) => value, 
+                static (_, _, newValue) => newValue,
                 new PeerMetadata(peer, service)
             );
             
             // and broadcast its existence to the world
-            return _mDnsServer!.RegisterAsync(service);
+            return _mDnsManager!.RegisterAsync(service);
         }
 
         /// <summary>
@@ -126,7 +123,7 @@ namespace AirDropAnywhere.Core
                 return default;
             }
 
-            return _mDnsServer!.UnregisterAsync(peerMetadata.Service);
+            return _mDnsManager!.UnregisterAsync(peerMetadata.Service);
         }
 
         /// <summary>
@@ -177,11 +174,7 @@ namespace AirDropAnywhere.Core
         
         private static ImmutableArray<NetworkInterface> GetNetworkInterfaces(Func<NetworkInterface, bool>? filter = null)
         {
-            var networkInterfaces = NetworkInterface.GetAllNetworkInterfaces()
-                .Where(i => i.SupportsMulticast)
-                .Where(i => i.OperationalStatus == OperationalStatus.Up)
-                .Where(i => i.NetworkInterfaceType != NetworkInterfaceType.Ppp);
-
+            var networkInterfaces = MulticastDnsManager.GetMulticastInterfaces();
             if (filter != null)
             {
                 networkInterfaces = networkInterfaces.Where(filter);

@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Immutable;
 using System.IO;
+using System.Net;
 using System.Net.Http;
+using System.Net.NetworkInformation;
 using System.Net.Security;
 using System.Text;
 using System.Text.Json;
@@ -8,6 +11,7 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using AirDropAnywhere.Cli.Hubs;
+using AirDropAnywhere.Core.MulticastDns;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -29,16 +33,25 @@ namespace AirDropAnywhere.Cli.Commands
             
             _httpClient = httpClientFactory.CreateClient("airdrop");
         }
-
+        
         public override async Task<int> ExecuteAsync(CommandContext context, Settings settings)
         {
+            if (settings.UseDiscovery)
+            {
+                // use mDNS to locate the server / port we need to connect to
+                var endpoint = await DiscoverAsync();
+                if (endpoint != null)
+                {
+                    (settings.Server, settings.Port) = (endpoint.Host, (ushort)endpoint.Port);
+                }
+            }
+
             var uri = new UriBuilder(
                 Uri.UriSchemeHttps, settings.Server, settings.Port, "/airdrop"
             ).Uri;
 
-            await using var hubConnection = CreateHubConnection(uri);
             using var cancellationTokenSource = CreateCancellationTokenSource();
-
+            await using var hubConnection = CreateHubConnection(uri);
             await Console.Status()
                 .StartAsync(
                     $"Connecting to [bold]{settings.Server}:{settings.Port}[/]",
@@ -52,7 +65,8 @@ namespace AirDropAnywhere.Cli.Commands
             // and then wait for the server to push messages to us
             var serverMessages = hubConnection.StreamAsync<AirDropHubMessage>(
                 nameof(AirDropHub.StreamAsync),
-                clientChannel.Reader.ReadAllAsync(cancellationTokenSource.Token)
+                clientChannel.Reader.ReadAllAsync(cancellationTokenSource.Token), 
+                cancellationTokenSource.Token
             );
 
             Logger.LogInformation("Registering client...");
@@ -116,6 +130,34 @@ namespace AirDropAnywhere.Cli.Commands
             // and we wouldn't be able to stop the connection gracefully!
             await hubConnection.StopAsync();
             return 0;
+        }
+
+        private async ValueTask<DnsEndPoint?> DiscoverAsync()
+        {
+            return await Console.Status()
+                .StartAsync(
+                    "Discovering AirDrop endpoints...",
+                    async _ =>
+                    {
+                        using var timedCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                        var networkInterfaces = MulticastDnsManager.GetMulticastInterfaces().ToImmutableArray();
+                        var mDnsManager = await MulticastDnsManager.CreateAsync(networkInterfaces, timedCancellation.Token);
+                        try
+                        {
+                            await foreach (var endpoint in mDnsManager.DiscoverAsync("_airdrop_proxy._tcp", timedCancellation.Token))
+                            {
+                                // we only care about the first endpoint!
+                                return endpoint;
+                            }
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // cancellation token was cancelled, nothing to see here, move along
+                        }
+
+                        return null;
+                    }
+                );
         }
 
         private CancellationTokenSource CreateCancellationTokenSource()
@@ -212,26 +254,31 @@ namespace AirDropAnywhere.Cli.Commands
         public class Settings : CommandSettings
         {
             [CommandOption("--server")]
-            public string Server { get; init; } = null!;
+            public string Server { get; internal set; } = null!;
             
             [CommandOption("--port")]
-            public ushort Port { get; init; } = default!;
+            public ushort Port { get; internal set; } = default!;
 
             [CommandOption("--path")]
             public string Path { get; init; } = null!;
 
+            public bool UseDiscovery => string.IsNullOrEmpty(Server) && Port == 0;
+
             public override ValidationResult Validate()
             {
-                if (string.IsNullOrEmpty(Server))
+                var hasServer = !string.IsNullOrEmpty(Server);
+                var hasPort = Port > 0;
+                // server / port must be specified together
+                if (hasServer && !hasPort)
                 {
-                    return ValidationResult.Error("Invalid server specified.");
-                }
-                
-                if (Port == 0)
-                {
-                    return ValidationResult.Error("Invalid port specified.");
+                    return ValidationResult.Error("Must specify a port if specifying a server.");
                 }
 
+                if (!hasServer && hasPort)
+                {
+                    return ValidationResult.Error("Must specify a server if specifying a port.");
+                }
+                
                 if (string.IsNullOrEmpty(Path))
                 {
                     return ValidationResult.Error("Invalid path specified.");
