@@ -3,7 +3,6 @@ using System.Collections.Immutable;
 using System.IO;
 using System.Net;
 using System.Net.Http;
-using System.Net.NetworkInformation;
 using System.Net.Security;
 using System.Text;
 using System.Text.Json;
@@ -251,13 +250,14 @@ namespace AirDropAnywhere.Cli.Commands
             Logger.LogInformation("Downloaded '{File}'...", request.Name);
         }
 
+        // ReSharper disable once ClassNeverInstantiated.Global
         public class Settings : CommandSettings
         {
             [CommandOption("--server")]
             public string Server { get; internal set; } = null!;
             
             [CommandOption("--port")]
-            public ushort Port { get; internal set; } = default!;
+            public ushort Port { get; internal set; }
 
             [CommandOption("--path")]
             public string Path { get; init; } = null!;

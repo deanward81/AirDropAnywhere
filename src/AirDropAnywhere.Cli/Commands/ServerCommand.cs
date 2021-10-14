@@ -168,6 +168,7 @@ namespace AirDropAnywhere.Cli.Commands
             return 0;
         }
         
+        // ReSharper disable once ClassNeverInstantiated.Global
         public class Settings : CommandSettings
         {
             [CommandOption("--port")]
