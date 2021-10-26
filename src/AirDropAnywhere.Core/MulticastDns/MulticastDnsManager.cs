@@ -9,6 +9,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Enclave.UdpPerf;
 using Makaretu.Dns;
@@ -17,9 +18,9 @@ using Makaretu.Dns.Resolving;
 namespace AirDropAnywhere.Core.MulticastDns
 {
     /// <summary>
-    /// Handles advertising mDNS services by responding to matching requests. 
+    /// Manages advertising and discovering mDNS services across one or more network interfaces. 
     /// </summary>
-    internal class MulticastDnsServer
+    public class MulticastDnsManager : IAsyncDisposable
     {
         private const int MulticastPort = 5353;
         // ReSharper disable InconsistentNaming
@@ -30,41 +31,144 @@ namespace AirDropAnywhere.Core.MulticastDns
         // ReSharper restore InconsistentNaming
 
         private readonly ImmutableArray<NetworkInterface> _networkInterfaces;
-        private readonly CancellationToken _cancellationToken;
         private readonly NameServer _nameServer;
 
+        private CancellationTokenSource? _cancellationTokenSource;
+        private ImmutableDictionary<Guid, ChannelWriter<Message>>? _responseHandlers;
         private ImmutableDictionary<AddressFamily, SocketListener>? _listeners;
         private ImmutableDictionary<AddressFamily, SocketClient>? _unicastClients;
         private ImmutableDictionary<(AddressFamily, int), SocketClient>? _multicastClients;
         private List<Task>? _listenerTasks;
 
-        public MulticastDnsServer(ImmutableArray<NetworkInterface> networkInterfaces, CancellationToken cancellationToken)
+        private MulticastDnsManager(ImmutableArray<NetworkInterface> networkInterfaces)
         {
             if (networkInterfaces.IsDefaultOrEmpty)
             {
                 throw new ArgumentException("Interfaces are required.", nameof(networkInterfaces));
             }
             
-            _networkInterfaces = networkInterfaces;
-            _cancellationToken = cancellationToken;
-            _nameServer = new NameServer()
+            _networkInterfaces = networkInterfaces.ToImmutableArray();
+            _nameServer = new NameServer
             {
                 Catalog = new Catalog()
             };
         }
 
-        public async ValueTask RegisterAsync(MulticastDnsService service)
+        /// <summary>
+        /// Creates a new instance of a <see cref="MulticastDnsManager"/>.
+        /// </summary>
+        /// <param name="networkInterfaces">
+        /// Network interfaces that the instance should bind to.
+        /// </param>
+        /// <param name="cancellationToken">
+        /// <see cref="CancellationToken"/> used to teardown 
+        /// </param>
+        /// <returns></returns>
+        public static async ValueTask<MulticastDnsManager> CreateAsync(ImmutableArray<NetworkInterface> networkInterfaces, CancellationToken cancellationToken)
+        {
+            var mgr = new MulticastDnsManager(networkInterfaces);
+            await mgr.InitializeAsync(cancellationToken);
+            return mgr;
+        }
+
+        /// <summary>
+        /// Gets all multicast capable network interfaces that are currently _up_.
+        /// </summary>
+        /// <returns>
+        /// An <see cref="IEnumerable{T}"/> of <see cref="NetworkInterface"/> objects.
+        /// </returns>
+        public static IEnumerable<NetworkInterface> GetMulticastInterfaces() =>
+            NetworkInterface.GetAllNetworkInterfaces()
+                .Where(i => i.SupportsMulticast)
+                .Where(i => i.OperationalStatus == OperationalStatus.Up)
+                .Where(i => i.NetworkInterfaceType != NetworkInterfaceType.Unknown)
+                .Where(i => i.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+                .Where(i => i.NetworkInterfaceType != NetworkInterfaceType.Ppp);
+
+        /// <summary>
+        /// Discovers all instances of a service, resolving each one to the underlying
+        /// host and port that it is hosted on. 
+        /// </summary>
+        /// <param name="serviceName">
+        /// Name of a service to resolve, e.g. _airdrop_proxy._tcp
+        /// </param>
+        /// <returns>
+        /// An <see cref="IAsyncEnumerable{T}"/> of <see cref="DnsEndPoint"/> representing
+        /// </returns>
+        public async IAsyncEnumerable<DnsEndPoint> DiscoverAsync(string serviceName, [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            var channel = Channel.CreateUnbounded<Message>();
+            var key = Guid.NewGuid();
+            var serviceDomain = DomainName.Join(serviceName, MulticastDnsService.Root);
+
+            // add a handler so responses can be dealt with...
+            _responseHandlers = _responseHandlers!.Add(key, channel.Writer);
+
+            static Message CreateQuery(DomainName name, DnsType type) => new()
+            {
+                Opcode = MessageOperation.Query,
+                Questions =
+                {
+                    new()
+                    {
+                        Name = name,
+                        Class = DnsClass.IN,
+                        Type = type
+                    }
+                }
+            };
+
+            // first up send a query for any PTR records associated with the service
+            await SendMulticastAsync(
+                CreateQuery(serviceDomain, DnsType.PTR)
+            );
+
+            // enumerate any responses for the query we sent
+            try
+            {
+                await foreach (var message in channel.Reader.ReadAllAsync(cancellationToken).WithCancellation(cancellationToken))
+                {
+                    foreach (var answer in message.Answers)
+                    {
+                        switch (answer)
+                        {
+                            case PTRRecord ptr when ptr.DomainName.IsSubdomainOf(serviceDomain):
+                                // we have a PTR record, use its data to query for any SRV records
+                                await SendMulticastAsync(
+                                    CreateQuery(ptr.DomainName, DnsType.SRV)
+                                );
+                                break;
+                            case SRVRecord srv when srv.Name.IsSubdomainOf(serviceDomain):
+                                // we have a SRV record - yield its target and port as a DnsEndPoint
+                                yield return new DnsEndPoint(srv.Target.ToString(), srv.Port);
+                                break;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                // we're done handling things, remove our handler
+                _responseHandlers = _responseHandlers.Remove(key);
+                
+                // and close down the channel so nothing else can be written to it
+                channel.Writer.Complete();
+            }
+        }
+
+                
+        internal async ValueTask RegisterAsync(MulticastDnsService service)
         {
             // add services to the name service
             // and pre-emptively announce ourselves across our multicast clients
             var catalog = _nameServer.Catalog;
             var msg = service.ToMessage();
-            
+
             catalog.Add(
                 new PTRRecord
                 {
                     DomainName = service.QualifiedServiceName,
-                    Name = MulticastDnsService.Discovery, 
+                    Name = MulticastDnsService.Discovery,
                     TTL = MulticastDnsService.DefaultTTL,
                 },
                 authoritative: true
@@ -78,30 +182,24 @@ namespace AirDropAnywhere.Core.MulticastDns
                 },
                 authoritative: true
             );
-            
+
             foreach (var resourceRecord in msg.Answers)
             {
                 catalog.Add(resourceRecord, authoritative: true);
             }
 
-            if (_multicastClients != null)
-            {
-                foreach (var client in _multicastClients.Values)
-                {
-                    await client.SendAsync(msg);
-                }
-            }
+            await SendMulticastAsync(msg);
         }
-        
-        public async ValueTask UnregisterAsync(MulticastDnsService service)
+
+        internal async ValueTask UnregisterAsync(MulticastDnsService service)
         {
             var catalog = _nameServer.Catalog;
-            
+
             // remove all services advertised under this name
             catalog.TryRemove(service.QualifiedServiceName, out _);
             catalog.TryRemove(service.QualifiedInstanceName, out _);
             catalog.TryRemove(service.HostName, out _);
-            
+
             // and pre-emptively announce ourselves with a 0 TTL
             var msg = service.ToMessage();
 
@@ -115,16 +213,10 @@ namespace AirDropAnywhere.Core.MulticastDns
                 additionalRecord.TTL = TimeSpan.Zero;
             }
 
-            if (_multicastClients != null)
-            {
-                foreach (var client in _multicastClients.Values)
-                {
-                    await client.SendAsync(msg);
-                }
-            }
+            await SendMulticastAsync(msg);
         }
         
-        public ValueTask StartAsync()
+        private ValueTask InitializeAsync(CancellationToken cancellationToken)
         {
             var multicastClients = ImmutableDictionary.CreateBuilder<(AddressFamily, int), SocketClient>();
             var unicastClients = ImmutableDictionary.CreateBuilder<AddressFamily, SocketClient>();
@@ -169,6 +261,8 @@ namespace AirDropAnywhere.Core.MulticastDns
                 }
             }
 
+            _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _responseHandlers = ImmutableDictionary<Guid, ChannelWriter<Message>>.Empty;
             _listeners = listeners.ToImmutable();
             _unicastClients = unicastClients.ToImmutable();
             _multicastClients = multicastClients.ToImmutable();
@@ -179,15 +273,21 @@ namespace AirDropAnywhere.Core.MulticastDns
             {
                 _listenerTasks.Add(
                     Task.Run(
-                        () => ListenAsync(listener), _cancellationToken
+                        () => ListenAsync(listener, _cancellationTokenSource.Token), _cancellationTokenSource.Token
                     )
                 );
             }
             return default;
         }
 
-        public async ValueTask StopAsync()
+        public async ValueTask DisposeAsync()
         {
+            if (_cancellationTokenSource != null)
+            {
+                _cancellationTokenSource.Cancel();
+                _cancellationTokenSource = null;
+            }
+
             if (_listenerTasks != null)
             {
                 await Task.WhenAll(_listenerTasks);
@@ -217,19 +317,25 @@ namespace AirDropAnywhere.Core.MulticastDns
                 }
             }
             
+            
             _listeners = null;
             _listenerTasks = null;
             _multicastClients = null;
             _unicastClients = null;
         }
 
-        private async Task ListenAsync(SocketListener listener)
+        private async Task ListenAsync(SocketListener listener, CancellationToken cancellationToken)
         {
-            await foreach (var receiveResult in listener.ReceiveAsync(_cancellationToken))
+            await foreach (var receiveResult in listener.ReceiveAsync(cancellationToken))
             {
                 var request = receiveResult.Message;
                 if (!request.IsQuery)
                 {
+                    // if we have response handlers then invoke them!
+                    foreach (var responseHandler in _responseHandlers!.Values)
+                    {
+                        await responseHandler.WriteAsync(request, cancellationToken);
+                    }
                     continue;
                 }
 
@@ -248,7 +354,7 @@ namespace AirDropAnywhere.Core.MulticastDns
                     }
                 }
 
-                var response = await _nameServer.ResolveAsync(request, _cancellationToken);
+                var response = await _nameServer.ResolveAsync(request, cancellationToken);
                 if (response.Status != MessageStatus.NoError)
                 {
                     // couldn't resolve the request, ignore it
@@ -279,14 +385,26 @@ namespace AirDropAnywhere.Core.MulticastDns
                 }
             }
         }
-
+        
+        private async ValueTask SendMulticastAsync(Message message)
+        {
+            if (_multicastClients != null)
+            {
+                foreach (var multicastClient in _multicastClients.Values)
+                {
+                    await multicastClient.SendAsync(message);
+                }
+            }
+        }
+        
         private static IEnumerable<IPAddress> GetNetworkInterfaceLocalAddresses(NetworkInterface networkInterface)
         {
             return networkInterface
                     .GetIPProperties()
                     .UnicastAddresses
                     .Select(x => x.Address)
-                    .Where(x => x.AddressFamily != AddressFamily.InterNetworkV6 || x.IsIPv6LinkLocal)
+                    .Where(ip => !IPAddress.IsLoopback(ip))
+                    .Where(ip => ip.AddressFamily != AddressFamily.InterNetworkV6 || ip.IsIPv6LinkLocal)
                 ;
         }
         

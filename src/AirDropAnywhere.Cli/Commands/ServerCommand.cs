@@ -3,9 +3,9 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using AirDropAnywhere.Cli.Certificates;
 using AirDropAnywhere.Cli.Hubs;
 using AirDropAnywhere.Cli.Logging;
-using AirDropAnywhere.Core.Certificates;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -20,20 +20,21 @@ namespace AirDropAnywhere.Cli.Commands
 {
     internal class ServerCommand : CommandBase<ServerCommand.Settings>
     {
-        public ServerCommand(IAnsiConsole console, ILogger<ServerCommand> logger) : base(console, logger)
+        private readonly CertificateManager _certificateManager;
+
+        public ServerCommand(
+            IAnsiConsole console, 
+            ILogger<ServerCommand> logger, 
+            CertificateManager certificateManager
+        ) : base(console, logger)
         {
+            _certificateManager = certificateManager ?? throw new ArgumentNullException(nameof(certificateManager));
         }
 
         public override async Task<int> ExecuteAsync(CommandContext context, Settings settings)
         {
             var webHost = default(IWebHost);
             using var cancellationTokenSource = new CancellationTokenSource();
-
-            Logger.LogInformation(
-                "Generating self-signed certificate for HTTPS"
-            );
-
-            using var cert = CertificateManager.Create();
             
             await Console.Status()
                 .Spinner(Spinner.Known.Earth)
@@ -52,8 +53,12 @@ namespace AirDropAnywhere.Cli.Commands
                                 }
                             )
                             .ConfigureKestrel(
-                                options => options.ConfigureAirDropDefaults(cert)
-                            )
+                                options =>
+                                {
+                                    options.ConfigureAirDropDefaults(
+                                        _certificateManager.GetOrCreate()
+                                    );
+                                })
                             .ConfigureServices(
                                 (hostContext, services) =>
                                 {
@@ -163,6 +168,7 @@ namespace AirDropAnywhere.Cli.Commands
             return 0;
         }
         
+        // ReSharper disable once ClassNeverInstantiated.Global
         public class Settings : CommandSettings
         {
             [CommandOption("--port")]

@@ -1,9 +1,10 @@
-﻿using System;
-using System.Net.Http;
-using System.Net.Security;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
+using AirDropAnywhere.Cli.Certificates;
 using AirDropAnywhere.Cli.Commands;
+using AirDropAnywhere.Cli.Http;
 using AirDropAnywhere.Cli.Logging;
+using Microsoft.AspNetCore.HttpLogging;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Spectre.Cli.Extensions.DependencyInjection;
@@ -18,26 +19,28 @@ namespace AirDropAnywhere.Cli
         public static Task<int> Main(string[] args)
         {
             var services = new ServiceCollection();
-                
+
             services
                 .AddHttpClient("airdrop")
                 .ConfigurePrimaryHttpMessageHandler(
-                    () => new SocketsHttpHandler
-                    {
-                        // we using a self-signed certificate, so ignore it
-                        SslOptions = new SslClientAuthenticationOptions
-                        {
-                            RemoteCertificateValidationCallback = delegate { return true; }
-                        }
-                    });
+                    HttpHandlerFactory.Create
+                );
             
             services
                 .AddSingleton(AnsiConsole.Console)
+                .AddSingleton<CertificateManager>()
+                .AddHttpLogging(
+                    options =>
+                    {
+                        options.LoggingFields = HttpLoggingFields.All;
+                    }
+                )
                 .AddLogging(
                     builder =>
                     {
                         builder.ClearProviders();
-                        builder.AddProvider(new SpectreInlineLoggerProvider(AnsiConsole.Console));
+                        builder.AddConfiguration(Configuration.Logging);
+                        builder.AddSpectreConsole();
                     }
                 );
 

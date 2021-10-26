@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,9 +26,9 @@ namespace AirDropAnywhere.Core
         private readonly ILogger<AirDropService> _logger;
         private readonly ConcurrentDictionary<string, PeerMetadata> _peersById = new();
         
-        private MulticastDnsServer? _mDnsServer;
+        private MulticastDnsManager? _mDnsManager;
         private CancellationTokenSource? _cancellationTokenSource;
-        
+
         public AirDropService(
             IOptionsMonitor<AirDropOptions> optionsMonitor,
             ILogger<AirDropService> logger
@@ -48,17 +50,15 @@ namespace AirDropAnywhere.Core
                 Interop.StartAWDLBrowsing();
             }
             
-            // we only support binding to the AWDL interface for mDNS
-            // and existence of this interface is asserted when
-            // this class is instantiated - GetNetworkInterfaces will
-            // only return interfaces that support an implementation of AWDL.
-            var networkInterfaces = GetNetworkInterfaces(i => i.IsAwdlInterface());
+            // we support binding to all interfaces for mDNS
+            // so that we can answer queries for our HTTP endpoints
+            var networkInterfaces = GetNetworkInterfaces();
 
             _cancellationTokenSource = new CancellationTokenSource();
-            _mDnsServer = new MulticastDnsServer(networkInterfaces, _cancellationTokenSource.Token);
-
-            _logger.LogInformation("Starting mDNS listener...");
-            await _mDnsServer.StartAsync();
+            _logger.LogInformation("Initializing mDNS...");
+            _mDnsManager = await MulticastDnsManager.CreateAsync(networkInterfaces, _cancellationTokenSource.Token);
+            _logger.LogInformation("Registering AirDrop HTTP service with mDNS...");
+            await _mDnsManager.RegisterAsync(CreateHttpMulticastDnsService());
         }
 
         async Task IHostedService.StopAsync(CancellationToken cancellationToken)
@@ -69,11 +69,11 @@ namespace AirDropAnywhere.Core
                 _cancellationTokenSource = null;
             }
 
-            if (_mDnsServer != null)
+            if (_mDnsManager != null)
             {
-                _logger.LogInformation("Stopping mDNS listener...");
-                await _mDnsServer.StopAsync();
-                _mDnsServer = null;
+                _logger.LogInformation("Stopping mDNS...");
+                await _mDnsManager.DisposeAsync();
+                _mDnsManager = null;
             }
 
             // on macOS, make sure AWDL is stopped by the OS
@@ -94,29 +94,19 @@ namespace AirDropAnywhere.Core
         public ValueTask RegisterPeerAsync(AirDropPeer peer)
         {
             _logger.LogInformation("Registering AirDrop peer '{Id}'...", peer.Id);
-            
-            var service = new MulticastDnsService.Builder()
-                .SetNames("_airdrop._tcp", peer.Id, peer.Id)
-                .AddEndpoints(
-                    GetNetworkInterfaces()
-                        .Select(i => i.GetIPProperties())
-                        .SelectMany(p => p.UnicastAddresses)
-                        .Where(p => !IPAddress.IsLoopback(p.Address))
-                        .Select(ip => new IPEndPoint(ip.Address, _optionsMonitor.CurrentValue.ListenPort))
-                )
-                .AddProperty("flags", ((uint) AirDropReceiverFlags.Default).ToString())
-                .Build();
 
+            var service = CreatePeerMulticastDnsService(peer);
+            
             // keep a record of the peer and its service
             _peersById.AddOrUpdate(
                 peer.Id,
-                (_, value) => value,
-                (_, _, newValue) => newValue,
+                static (_, value) => value, 
+                static (_, _, newValue) => newValue,
                 new PeerMetadata(peer, service)
             );
             
             // and broadcast its existence to the world
-            return _mDnsServer!.RegisterAsync(service);
+            return _mDnsManager!.RegisterAsync(service);
         }
 
         /// <summary>
@@ -134,7 +124,7 @@ namespace AirDropAnywhere.Core
                 return default;
             }
 
-            return _mDnsServer!.UnregisterAsync(peerMetadata.Service);
+            return _mDnsManager!.UnregisterAsync(peerMetadata.Service);
         }
 
         /// <summary>
@@ -159,15 +149,64 @@ namespace AirDropAnywhere.Core
             peer = peerMetadata.Peer;
             return true;
         }
+
+        private MulticastDnsService CreatePeerMulticastDnsService(AirDropPeer peer)
+        {
+            // peers should only be advertised over the AWDL/OWL interface
+            var networkInterfaces = GetNetworkInterfaces(i => i.IsAwdlInterface());
+            var endPoints = GetAllEndpoints(networkInterfaces);
+            
+            return new MulticastDnsService.Builder()
+                .SetNames("_airdrop._tcp", peer.Id, peer.Id)
+                .AddEndpoints(endPoints)
+                .AddProperty("flags", ((uint)AirDropReceiverFlags.Default).ToString())
+                .Build();
+        }
+
+        private MulticastDnsService CreateHttpMulticastDnsService()
+        {
+            // Our HTTP service can be advertised over all valid interfaces *except* AWDL/OWL
+            var networkInterfaces = GetNetworkInterfaces(i => !i.IsAwdlInterface());
+            var endPoints = GetAllEndpoints(networkInterfaces);
+
+            return new MulticastDnsService.Builder()
+                .SetNames("_airdrop_proxy._tcp", "airdrop", "airdrop")
+                .AddEndpoints(endPoints)
+                .Build();
+        }
+
+        private IEnumerable<IPEndPoint> GetAllEndpoints(IEnumerable<NetworkInterface> interfaces) =>
+            interfaces
+                .Select(i => i.GetIPProperties())
+                .SelectMany(p => p.UnicastAddresses)
+                .Where(p => HasValidMulticastAddress(p.Address))
+                .Select(ip => new IPEndPoint(ip.Address, _optionsMonitor.CurrentValue.ListenPort));
         
+        private static bool HasValidMulticastAddress(IPAddress ipAddress)
+        {
+            if (IPAddress.IsLoopback(ipAddress))
+            {
+                return false;
+            }
+            
+            if (ipAddress.AddressFamily == AddressFamily.InterNetwork)
+            {
+                Span<byte> addressBytes = stackalloc byte[4];
+                // on *nix platforms IPV4InterfaceProperties.IsAutomaticPrivateAddressingActive
+                // is not implemented so here we simply check if the first two bytes of the IPv4
+                // address match those used by APIPA - i.e. in the network 169.254.0.0/16
+                if (ipAddress.TryWriteBytes(addressBytes, out _) && addressBytes[0] == 169 && addressBytes[1] == 254)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         private static ImmutableArray<NetworkInterface> GetNetworkInterfaces(Func<NetworkInterface, bool>? filter = null)
         {
-            var networkInterfaces = NetworkInterface.GetAllNetworkInterfaces()
-                .Where(i => i.SupportsMulticast)
-                .Where(i => i.OperationalStatus == OperationalStatus.Up)
-                .Where(i => i.NetworkInterfaceType != NetworkInterfaceType.Ppp)
-                .Where(i => i.IsAwdlInterface());
-
+            var networkInterfaces = MulticastDnsManager.GetMulticastInterfaces();
             if (filter != null)
             {
                 networkInterfaces = networkInterfaces.Where(filter);

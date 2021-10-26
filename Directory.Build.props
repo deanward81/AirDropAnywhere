@@ -16,6 +16,8 @@
     <IncludeSymbols>false</IncludeSymbols>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+    <SatelliteResourceLanguages>en-US</SatelliteResourceLanguages>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
