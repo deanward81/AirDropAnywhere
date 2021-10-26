@@ -3,13 +3,15 @@ using System.Collections.Immutable;
 using System.IO;
 using System.Net;
 using System.Net.Http;
-using System.Net.Security;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using AirDropAnywhere.Cli.Http;
 using AirDropAnywhere.Cli.Hubs;
+using AirDropAnywhere.Cli.Logging;
 using AirDropAnywhere.Core.MulticastDns;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
@@ -39,24 +41,32 @@ namespace AirDropAnywhere.Cli.Commands
             {
                 // use mDNS to locate the server / port we need to connect to
                 var endpoint = await DiscoverAsync();
-                if (endpoint != null)
+                if (endpoint == null)
                 {
-                    (settings.Server, settings.Port) = (endpoint.Host, (ushort)endpoint.Port);
+                    throw new ArgumentException("Could not discover an AirDrop endpoint to connect to!");
                 }
+                
+                var hostBuilder = new StringBuilder(endpoint.Address.ToString());
+                if (endpoint.Address.AddressFamily == AddressFamily.InterNetworkV6)
+                {
+                    hostBuilder.Insert(0, '[').Append(']');
+                }
+                
+                (settings.Server, settings.Port) = (hostBuilder.ToString(), (ushort)endpoint.Port);
             }
-
+            
             var uri = new UriBuilder(
                 Uri.UriSchemeHttps, settings.Server, settings.Port, "/airdrop"
             ).Uri;
-
+            
             using var cancellationTokenSource = CreateCancellationTokenSource();
             await using var hubConnection = CreateHubConnection(uri);
             await Console.Status()
                 .StartAsync(
-                    $"Connecting to [bold]{settings.Server}:{settings.Port}[/]",
+                    $"Connecting to [bold]{settings.Server.EscapeMarkup()}:{settings.Port}[/]",
                     _ => hubConnection.StartAsync(cancellationTokenSource.Token)
                 );
-                
+                    
             var clientChannel = Channel.CreateUnbounded<AirDropHubMessage>();
 
             // start the full duplex stream between the server and the client
@@ -131,7 +141,7 @@ namespace AirDropAnywhere.Cli.Commands
             return 0;
         }
 
-        private async ValueTask<DnsEndPoint?> DiscoverAsync()
+        private async ValueTask<IPEndPoint?> DiscoverAsync()
         {
             return await Console.Status()
                 .StartAsync(
@@ -143,10 +153,14 @@ namespace AirDropAnywhere.Cli.Commands
                         var mDnsManager = await MulticastDnsManager.CreateAsync(networkInterfaces, timedCancellation.Token);
                         try
                         {
-                            await foreach (var endpoint in mDnsManager.DiscoverAsync("_airdrop_proxy._tcp", timedCancellation.Token))
+                            var endpoint = await mDnsManager
+                                .DiscoverAsync("_airdrop_proxy._tcp", timedCancellation.Token)
+                                .FirstOrDefaultAsync(timedCancellation.Token);
+
+                            if (endpoint != null)
                             {
-                                // we only care about the first endpoint!
-                                return endpoint;
+                                // perform a DNS lookup to locate the IP addresses for the host
+                                return await ResolveAsync(endpoint, timedCancellation.Token);
                             }
                         }
                         catch (OperationCanceledException)
@@ -154,9 +168,84 @@ namespace AirDropAnywhere.Cli.Commands
                             // cancellation token was cancelled, nothing to see here, move along
                         }
 
-                        return null;
+                        return default;
                     }
                 );
+        }
+
+        private async ValueTask<IPEndPoint?> ResolveAsync(DnsEndPoint dnsEndPoint, CancellationToken cancellationToken)
+        {
+            const string logPrefix = nameof(ResolveAsync) + ": "; 
+            
+            // when .NET attempts to connect to a DNS endpoint
+            // it appears to naively pick the first IPv4 or IPv6 record
+            // it resolves to, irrespective of the reachability of the underlying
+            // address. When resolving using mDNS, depending on the network interfaces
+            // available to the system that registered the DNS entry, we can often
+            // have multiple IPv4 or IPv6 addresses returned to the resolver. If
+            // .NET picks one that is not reachable from the client system then
+            // connectivity to the endpoint will fail.
+            //
+            // Here we resolve all the IP addresses for a host entry and attempt to connect
+            // to each one until we are successful. That is the IP address we'll connect to
+            //
+            Logger.LogInformation(logPrefix + "Resolving {Host}", dnsEndPoint.Host);
+            
+            var ipAddresses = await Dns.GetHostAddressesAsync(dnsEndPoint.Host, cancellationToken);
+            
+            Logger.LogInformation(
+                logPrefix + "Found {Count} addresses for {Host}", 
+                ipAddresses.Length, 
+                dnsEndPoint.Host
+            );
+            
+            foreach (var ipAddress in ipAddresses)
+            {
+                // _currently_ IPv6 link local addresses _do not_ work correctly
+                // with .NET's Uri class - Uri strips the link local scope identifier
+                // which means HttpClient and SignalR's web socket handling are unable
+                // to route the connection to the right place. For now, attempt to
+                // use an IPv4 address... This _really_ needs to be fixed up
+                // perhaps using a ConnectCallback for the HTTP bits and passing
+                // a NetworkStream directly to WebSocket.CreateFromStream for SignalR
+                if (ipAddress.AddressFamily != AddressFamily.InterNetwork)
+                {
+                    Logger.LogInformation(logPrefix + "Ignoring non-IPv4 address '{Address}'...", ipAddress);   
+                    continue;
+                }
+
+                Logger.LogInformation(logPrefix + "Checking connectivity to {Address}", ipAddress); 
+                
+                var ipEndPoint = new IPEndPoint(ipAddress, dnsEndPoint.Port);
+                if (await TryConnectAsync(ipEndPoint, cancellationToken))
+                {
+                    Logger.LogInformation(
+                        logPrefix + "Resolved {Host} to {Address}", 
+                        dnsEndPoint.Host, 
+                        ipAddress
+                    );
+                    return ipEndPoint;
+                }
+            }
+
+            Logger.LogError("Unable to resolve {Server}", dnsEndPoint.Host);
+            return default;
+        }
+        
+        private async ValueTask<bool> TryConnectAsync(EndPoint endPoint, CancellationToken cancellationToken)
+        {
+            using var timedSource = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            using var aggregateSource = CancellationTokenSource.CreateLinkedTokenSource(timedSource.Token, cancellationToken);
+            using var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+            try
+            {
+                await socket.ConnectAsync(endPoint, aggregateSource.Token).ConfigureAwait(false);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private CancellationTokenSource CreateCancellationTokenSource()
@@ -191,20 +280,20 @@ namespace AirDropAnywhere.Cli.Commands
                         };
                     }
                 )
+                .ConfigureLogging(
+                    builder =>
+                    {
+                        builder.ClearProviders();
+                        builder.AddConfiguration(Configuration.Logging);
+                        builder.AddSpectreConsole();
+                    }
+                )
                 .WithUrl(uri, options =>
                 {
-                    // ignore TLS certificate errors - we're deliberately
-                    // using self-signed certificates so no need to worry
-                    // about validating them here
-                    options.HttpMessageHandlerFactory = _ =>
+                    options.HttpMessageHandlerFactory = _ => HttpHandlerFactory.Create();
+                    options.WebSocketConfiguration = socketConfiguration =>
                     {
-                        return new SocketsHttpHandler
-                        {
-                            SslOptions = new SslClientAuthenticationOptions
-                            {
-                                RemoteCertificateValidationCallback = delegate { return true; }
-                            }
-                        };
+                        socketConfiguration.RemoteCertificateValidationCallback = HttpHandlerFactory.IgnoreRemoteCertificateValidator;
                     };
                 })
                 .Build();

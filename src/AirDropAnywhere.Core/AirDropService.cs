@@ -6,6 +6,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -149,29 +150,60 @@ namespace AirDropAnywhere.Core
             return true;
         }
 
-        private MulticastDnsService CreatePeerMulticastDnsService(AirDropPeer peer) =>
-            new MulticastDnsService.Builder()
+        private MulticastDnsService CreatePeerMulticastDnsService(AirDropPeer peer)
+        {
+            // peers should only be advertised over the AWDL/OWL interface
+            var networkInterfaces = GetNetworkInterfaces(i => i.IsAwdlInterface());
+            var endPoints = GetAllEndpoints(networkInterfaces);
+            
+            return new MulticastDnsService.Builder()
                 .SetNames("_airdrop._tcp", peer.Id, peer.Id)
-                .AddEndpoints(GetAllEndpoints(GetAwdlInterfaces()))
-                .AddProperty("flags", ((uint) AirDropReceiverFlags.Default).ToString())
+                .AddEndpoints(endPoints)
+                .AddProperty("flags", ((uint)AirDropReceiverFlags.Default).ToString())
                 .Build();
-        
-        private MulticastDnsService CreateHttpMulticastDnsService() =>
-            new MulticastDnsService.Builder()
+        }
+
+        private MulticastDnsService CreateHttpMulticastDnsService()
+        {
+            // Our HTTP service can be advertised over all valid interfaces *except* AWDL/OWL
+            var networkInterfaces = GetNetworkInterfaces(i => !i.IsAwdlInterface());
+            var endPoints = GetAllEndpoints(networkInterfaces);
+
+            return new MulticastDnsService.Builder()
                 .SetNames("_airdrop_proxy._tcp", "airdrop", "airdrop")
-                .AddEndpoints(GetAllEndpoints(GetNetworkInterfaces()))
+                .AddEndpoints(endPoints)
                 .Build();
+        }
 
         private IEnumerable<IPEndPoint> GetAllEndpoints(IEnumerable<NetworkInterface> interfaces) =>
             interfaces
                 .Select(i => i.GetIPProperties())
                 .SelectMany(p => p.UnicastAddresses)
-                .Where(p => !IPAddress.IsLoopback(p.Address))
+                .Where(p => HasValidMulticastAddress(p.Address))
                 .Select(ip => new IPEndPoint(ip.Address, _optionsMonitor.CurrentValue.ListenPort));
-
-        private static ImmutableArray<NetworkInterface> GetAwdlInterfaces() =>
-            GetNetworkInterfaces(i => i.IsAwdlInterface());
         
+        private static bool HasValidMulticastAddress(IPAddress ipAddress)
+        {
+            if (IPAddress.IsLoopback(ipAddress))
+            {
+                return false;
+            }
+            
+            if (ipAddress.AddressFamily == AddressFamily.InterNetwork)
+            {
+                Span<byte> addressBytes = stackalloc byte[4];
+                // on *nix platforms IPV4InterfaceProperties.IsAutomaticPrivateAddressingActive
+                // is not implemented so here we simply check if the first two bytes of the IPv4
+                // address match those used by APIPA - i.e. in the network 169.254.0.0/16
+                if (ipAddress.TryWriteBytes(addressBytes, out _) && addressBytes[0] == 169 && addressBytes[1] == 254)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         private static ImmutableArray<NetworkInterface> GetNetworkInterfaces(Func<NetworkInterface, bool>? filter = null)
         {
             var networkInterfaces = MulticastDnsManager.GetMulticastInterfaces();
